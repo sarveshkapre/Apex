@@ -75,6 +75,32 @@ describe("Apex API", () => {
     expect(listAfter.body.data.length).toBe(1);
   });
 
+  it("returns global search results with facets and filters", async () => {
+    const { app } = createApp();
+
+    const search = await request(app)
+      .get("/v1/search")
+      .query({
+        q: "device",
+        objectType: "Device"
+      });
+    expect(search.status).toBe(200);
+    expect(search.body.data.query).toBe("device");
+    expect(Array.isArray(search.body.data.results)).toBe(true);
+    expect(search.body.data.results.every((item: { type: string }) => item.type === "Device")).toBe(true);
+    expect(Array.isArray(search.body.data.facets.types)).toBe(true);
+
+    const filtered = await request(app)
+      .get("/v1/search")
+      .query({
+        q: "laptop",
+        complianceState: "compliant"
+      });
+    expect(filtered.status).toBe(200);
+    expect(Array.isArray(filtered.body.data.results)).toBe(true);
+    expect(filtered.body.data.filtersApplied.complianceState).toBe("compliant");
+  });
+
   it("merges duplicate objects and supports reversible rollback", async () => {
     const { app } = createApp();
 

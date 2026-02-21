@@ -174,6 +174,38 @@ export interface KnowledgeArticle {
   updatedAt: string;
 }
 
+export interface GlobalSearchResult {
+  id: string;
+  type: string;
+  title: string;
+  entity: "object" | "work-item" | "workflow" | "kb";
+  status?: string;
+  location?: string;
+  owner?: string;
+  complianceState?: string;
+  lastSeen?: string;
+}
+
+export interface GlobalSearchResponse {
+  query: string;
+  filtersApplied: {
+    objectType?: string;
+    status?: string;
+    location?: string;
+    owner?: string;
+    complianceState?: string;
+    lastSeenDays?: number;
+  };
+  facets: {
+    types: Array<{ value: string; count: number }>;
+    status: Array<{ value: string; count: number }>;
+    location: Array<{ value: string; count: number }>;
+    owner: Array<{ value: string; count: number }>;
+    complianceState: Array<{ value: string; count: number }>;
+  };
+  results: GlobalSearchResult[];
+}
+
 export interface DashboardKpis {
   totalAssets: number;
   complianceScore: number;

@@ -16,6 +16,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Signal ingestion + reconciliation candidate matching + canonical merge
 - Manual field override controls with reason + optional expiry stored in provenance
 - Graph object actions for link/unlink, child object creation, and workflow start from object context
+- Global search now supports facet and filter-aware result retrieval
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
 - Approval timeout lifecycle with expiry and escalation to fallback approver
@@ -72,6 +73,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - `/portal` Home, My Assets, My Access, My Requests, Help/KB, Chat/Command
 - `/operator` Overview, Queue Center, Asset Graph, Workflows, Policies, Integrations, Reports, Admin Studio
 - Shared command palette with keyboard shortcut (`Cmd/Ctrl + K`)
+- Global command palette now executes live backend search with type facets and contextual navigation
 - Role-aware nav shell and modern minimalist UI built with Next.js + Tailwind + shadcn
 - Admin Studio interactive controls for creating schemas/policies/notification rules
 - Admin Studio RBAC governance controls (field restrictions, SoD rules, approval matrix, authorization check)

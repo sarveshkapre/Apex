@@ -2383,23 +2383,123 @@ export const createRoutes = (store: ApexStore): Router => {
   });
 
   router.get("/search", (req, res) => {
-    const q = String(req.query.q ?? "").toLowerCase();
-    const objects = [...store.objects.values()]
-      .filter((object) => JSON.stringify(object).toLowerCase().includes(q))
-      .map((object) => ({ id: object.id, type: object.type, title: String(object.fields.name ?? object.id) }));
-    const workItems = [...store.workItems.values()]
-      .filter((item) => JSON.stringify(item).toLowerCase().includes(q))
-      .map((item) => ({ id: item.id, type: item.type, title: item.title }));
-    const workflowsFound = [...store.workflowDefinitions.values()]
-      .filter((workflow) => JSON.stringify(workflow).toLowerCase().includes(q))
-      .map((workflow) => ({ id: workflow.id, type: "Workflow", title: workflow.name }));
-    const kb = kbArticles
-      .filter((article) => JSON.stringify(article).toLowerCase().includes(q))
-      .map((article) => ({ id: article.id, type: "KB", title: article.title }));
+    const q = String(req.query.q ?? "").trim().toLowerCase();
+    const objectType = req.query.objectType ? String(req.query.objectType) : undefined;
+    const status = req.query.status ? String(req.query.status).toLowerCase() : undefined;
+    const location = req.query.location ? String(req.query.location).toLowerCase() : undefined;
+    const owner = req.query.owner ? String(req.query.owner).toLowerCase() : undefined;
+    const complianceState = req.query.complianceState ? String(req.query.complianceState).toLowerCase() : undefined;
+    const lastSeenDays = req.query.lastSeenDays ? Number(req.query.lastSeenDays) : undefined;
+
+    type SearchResult = {
+      id: string;
+      type: string;
+      title: string;
+      entity: "object" | "work-item" | "workflow" | "kb";
+      status?: string;
+      location?: string;
+      owner?: string;
+      complianceState?: string;
+      lastSeen?: string;
+    };
+
+    const objectResults: SearchResult[] = [...store.objects.values()].map((object) => ({
+      id: object.id,
+      type: object.type,
+      title: String(object.fields.name ?? object.fields.legal_name ?? object.fields.asset_tag ?? object.id),
+      entity: "object",
+      status: String(object.fields.status ?? ""),
+      location: String(object.fields.location ?? ""),
+      owner: String(object.fields.owner ?? object.fields.assigned_to ?? ""),
+      complianceState: String(object.fields.compliance_state ?? ""),
+      lastSeen: String(object.fields.last_seen ?? object.fields.last_checkin ?? "")
+    }));
+
+    const workItemResults: SearchResult[] = [...store.workItems.values()].map((item) => ({
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      entity: "work-item",
+      status: item.status,
+      location: "",
+      owner: item.requesterId,
+      complianceState: ""
+    }));
+
+    const workflowResults: SearchResult[] = [...store.workflowDefinitions.values()].map((workflow) => ({
+      id: workflow.id,
+      type: "Workflow",
+      title: workflow.name,
+      entity: "workflow"
+    }));
+
+    const kbResults: SearchResult[] = kbArticles.map((article) => ({
+      id: article.id,
+      type: "KB",
+      title: article.title,
+      entity: "kb"
+    }));
+
+    const seeded = [...objectResults, ...workItemResults, ...workflowResults, ...kbResults];
+    const withQuery = q.length > 0 ? seeded.filter((item) => JSON.stringify(item).toLowerCase().includes(q)) : [];
+    const results = withQuery.filter((item) => {
+      if (objectType && item.type !== objectType) {
+        return false;
+      }
+      if (status && !String(item.status ?? "").toLowerCase().includes(status)) {
+        return false;
+      }
+      if (location && !String(item.location ?? "").toLowerCase().includes(location)) {
+        return false;
+      }
+      if (owner && !String(item.owner ?? "").toLowerCase().includes(owner)) {
+        return false;
+      }
+      if (complianceState && !String(item.complianceState ?? "").toLowerCase().includes(complianceState)) {
+        return false;
+      }
+      if (lastSeenDays !== undefined && Number.isFinite(lastSeenDays)) {
+        const lastSeenTs = new Date(String(item.lastSeen ?? "")).getTime();
+        if (!Number.isNaN(lastSeenTs)) {
+          const ageDays = Math.floor((Date.now() - lastSeenTs) / (24 * 60 * 60 * 1000));
+          if (ageDays < lastSeenDays) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+
+    const facetCount = (values: string[]) =>
+      Object.entries(
+        values.reduce<Record<string, number>>((acc, value) => {
+          const key = value || "unknown";
+          acc[key] = (acc[key] ?? 0) + 1;
+          return acc;
+        }, {})
+      )
+        .sort((left, right) => right[1] - left[1])
+        .map(([value, count]) => ({ value, count }));
+
     res.json({
       data: {
         query: q,
-        results: [...objects, ...workItems, ...workflowsFound, ...kb]
+        filtersApplied: {
+          objectType,
+          status,
+          location,
+          owner,
+          complianceState,
+          lastSeenDays
+        },
+        facets: {
+          types: facetCount(results.map((item) => item.type)),
+          status: facetCount(results.map((item) => String(item.status ?? ""))),
+          location: facetCount(results.map((item) => String(item.location ?? ""))),
+          owner: facetCount(results.map((item) => String(item.owner ?? ""))),
+          complianceState: facetCount(results.map((item) => String(item.complianceState ?? "")))
+        },
+        results
       }
     });
   });

@@ -14,13 +14,33 @@ import {
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { operatorNav, portalNav } from "@/components/layout/nav-config";
+import { searchGlobal } from "@/lib/apex";
+import { GlobalSearchResult } from "@/lib/types";
 
 const flattenItems = [...portalNav, ...operatorNav].filter(
   (item, index, array) => array.findIndex((candidate) => candidate.href === item.href) === index
 );
 
+const routeForResult = (result: GlobalSearchResult): string => {
+  if (result.entity === "object") {
+    return `/operator/graph?focus=${encodeURIComponent(result.id)}`;
+  }
+  if (result.entity === "work-item") {
+    return `/operator/queues?focus=${encodeURIComponent(result.id)}`;
+  }
+  if (result.entity === "workflow") {
+    return `/operator/workflows?focus=${encodeURIComponent(result.id)}`;
+  }
+  return `/portal/help?article=${encodeURIComponent(result.id)}`;
+};
+
 export function GlobalCommand() {
   const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [typeFilter, setTypeFilter] = React.useState<string | undefined>(undefined);
+  const [loading, setLoading] = React.useState(false);
+  const [searchResults, setSearchResults] = React.useState<GlobalSearchResult[]>([]);
+  const [facetTypes, setFacetTypes] = React.useState<Array<{ value: string; count: number }>>([]);
   const router = useRouter();
 
   React.useEffect(() => {
@@ -34,6 +54,51 @@ export function GlobalCommand() {
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);
+
+  React.useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const q = query.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setFacetTypes([]);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    setLoading(true);
+    const timeout = setTimeout(async () => {
+      try {
+        const data = await searchGlobal({
+          q,
+          objectType: typeFilter
+        });
+        if (!active) {
+          return;
+        }
+        setSearchResults(data.results.slice(0, 12));
+        setFacetTypes(data.facets.types.filter((facet) => facet.value !== "unknown").slice(0, 6));
+      } catch {
+        if (!active) {
+          return;
+        }
+        setSearchResults([]);
+        setFacetTypes([]);
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [open, query, typeFilter]);
 
   return (
     <>
@@ -50,9 +115,63 @@ export function GlobalCommand() {
         <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-[11px]">⌘K</kbd>
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Try 'offboard sam today and recover assets'" />
+        <CommandInput
+          placeholder="Try 'offboard sam today and recover assets'"
+          value={query}
+          onValueChange={setQuery}
+        />
         <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
+          <CommandEmpty>
+            {query.trim().length < 2 ? "Type at least 2 characters to search." : "No results found."}
+          </CommandEmpty>
+
+          {query.trim().length >= 2 ? (
+            <CommandGroup heading={loading ? "Searching..." : `Search results${typeFilter ? ` (${typeFilter})` : ""}`}>
+              {searchResults.map((result) => (
+                <CommandItem
+                  key={`${result.entity}-${result.id}`}
+                  onSelect={() => {
+                    router.push(routeForResult(result));
+                    setOpen(false);
+                  }}
+                >
+                  <span className="truncate">{result.title}</span>
+                  <span className="ml-auto text-xs text-zinc-500">{result.type}</span>
+                </CommandItem>
+              ))}
+              <CommandItem
+                onSelect={() => {
+                  router.push(`/portal/command?q=${encodeURIComponent(query.trim())}`);
+                  setOpen(false);
+                }}
+              >
+                Ask Copilot about &quot;{query.trim()}&quot;
+              </CommandItem>
+            </CommandGroup>
+          ) : null}
+
+          {facetTypes.length > 0 ? (
+            <>
+              <CommandSeparator />
+              <CommandGroup heading="Type facets">
+                {facetTypes.map((facet) => (
+                  <CommandItem
+                    key={facet.value}
+                    onSelect={() => {
+                      setTypeFilter((current) => (current === facet.value ? undefined : facet.value));
+                    }}
+                  >
+                    {facet.value} ({facet.count}){typeFilter === facet.value ? " • active" : ""}
+                  </CommandItem>
+                ))}
+                {typeFilter ? (
+                  <CommandItem onSelect={() => setTypeFilter(undefined)}>Clear type filter</CommandItem>
+                ) : null}
+              </CommandGroup>
+            </>
+          ) : null}
+
+          <CommandSeparator />
           <CommandGroup heading="Navigate">
             {flattenItems.map((item) => (
               <CommandItem

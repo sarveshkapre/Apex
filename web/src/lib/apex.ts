@@ -20,6 +20,7 @@ import {
   FieldRestriction,
   GraphObject,
   GraphRelationship,
+  GlobalSearchResponse,
   IntegrationHealth,
   JmlMoverExecutionResult,
   JmlMoverRun,
@@ -116,6 +117,48 @@ export const listObjectsByType = async (type: string): Promise<GraphObject[]> =>
 export const listRelationships = async (objectId?: string): Promise<GraphRelationship[]> => {
   const query = objectId ? `?objectId=${encodeURIComponent(objectId)}` : "";
   return safe(() => get<GraphRelationship[]>(`/relationships${query}`), []);
+};
+
+export const searchGlobal = async (params: {
+  q: string;
+  objectType?: string;
+  status?: string;
+  location?: string;
+  owner?: string;
+  complianceState?: string;
+  lastSeenDays?: number;
+}): Promise<GlobalSearchResponse> => {
+  const query = new URLSearchParams();
+  query.set("q", params.q);
+  if (params.objectType) query.set("objectType", params.objectType);
+  if (params.status) query.set("status", params.status);
+  if (params.location) query.set("location", params.location);
+  if (params.owner) query.set("owner", params.owner);
+  if (params.complianceState) query.set("complianceState", params.complianceState);
+  if (params.lastSeenDays !== undefined) query.set("lastSeenDays", String(params.lastSeenDays));
+
+  return safe(
+    () => get<GlobalSearchResponse>(`/search?${query.toString()}`),
+    {
+      query: params.q,
+      filtersApplied: {
+        objectType: params.objectType,
+        status: params.status,
+        location: params.location,
+        owner: params.owner,
+        complianceState: params.complianceState,
+        lastSeenDays: params.lastSeenDays
+      },
+      facets: {
+        types: [],
+        status: [],
+        location: [],
+        owner: [],
+        complianceState: []
+      },
+      results: []
+    }
+  );
 };
 
 export const createRelationship = async (payload: {
