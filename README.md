@@ -72,7 +72,7 @@ This repository now ships a full-stack implementation baseline for Apex:
   - approvals inbox + delegation (`/v1/approvals/inbox`, `/v1/approvals/:id/delegate`)
   - approval timeout controls (`/v1/approvals/:id/expiry`, `/v1/approvals/escalations/run`)
   - exception queue operations (`/v1/exceptions`, `/v1/exceptions/:id/action`)
-  - cloud tag governance coverage + enforcement (`/v1/cloud/tag-governance/coverage`, `/v1/cloud/tag-governance/enforce`)
+  - cloud tag governance coverage + enforcement with confidence scoring and approval-gated remediations (`/v1/cloud/tag-governance/coverage`, `/v1/cloud/tag-governance/enforce`)
   - SaaS reclaim policies + runs + retries (`/v1/saas/reclaim/policies`, `/v1/saas/reclaim/runs`, `/v1/saas/reclaim/runs/:id/retry`)
   - RBAC governance controls (`/v1/admin/rbac/field-restrictions`, `/v1/admin/rbac/sod-rules`, `/v1/admin/rbac/approval-matrix`, `/v1/admin/rbac/authorize`)
 - AI assistant APIs:
@@ -103,7 +103,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Portal asset/access action buttons now create linked requests/incidents against selected objects
 - Portal assets includes guided lost/stolen dialog with security action planning and approval expectations
 - Portal assets includes acknowledgement actions for receipt and return shipment custody events
-- Operator Cloud Tag Governance module with dry-run/live remediation controls
+- Operator Cloud Tag Governance module with confidence thresholds, approval routing, and dry-run/live remediation controls
 - Operator SaaS Governance module for reclaim policy authoring, run history, and retry controls
 - Operator Contract Renewals module for upcoming renewal pipeline and reminder runs
 - Report Studio with saved definitions, manual runs, schedule metadata, and export artifacts

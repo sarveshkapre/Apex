@@ -14,11 +14,13 @@ export default async function CloudGovernancePage() {
         badge="P1"
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard title="Cloud Resources" value={coverage.totalResources} helper="Discovered across providers" />
         <MetricCard title="Coverage" value={`${coverage.coveragePercent}%`} helper="Required tags present" />
         <MetricCard title="Compliant" value={coverage.compliantResources} helper="Meets all required tags" />
         <MetricCard title="Noncompliant" value={coverage.nonCompliantResources} helper="Needs remediation" />
+        <MetricCard title="Auto-Tag Ready" value={coverage.autoTagReadyResources} helper="High-confidence candidates" />
+        <MetricCard title="Approval Needed" value={coverage.approvalRequiredResources} helper="Medium-confidence candidates" />
       </section>
 
       <CloudGovernance initialCoverage={coverage} />

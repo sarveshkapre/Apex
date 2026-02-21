@@ -1386,6 +1386,9 @@ describe("Apex API", () => {
     expect(response.status).toBe(200);
     expect(response.body.data.totalResources).toBeGreaterThan(0);
     expect(response.body.data.nonCompliantResources).toBeGreaterThan(0);
+    expect(typeof response.body.data.autoTagReadyResources).toBe("number");
+    expect(typeof response.body.data.approvalRequiredResources).toBe("number");
+    expect(Array.isArray(response.body.data.nonCompliant[0].tagSuggestions)).toBe(true);
   });
 
   it("runs cloud tag enforcement in dry-run and live modes", async () => {
@@ -1418,11 +1421,63 @@ describe("Apex API", () => {
     expect(live.status).toBe(200);
     expect(live.body.data.mode).toBe("live");
     expect(live.body.data.exceptionsCreated).toBeGreaterThan(0);
+    expect(typeof live.body.data.approvalsCreated).toBe("number");
 
     const afterLive = await request(app).get("/v1/work-items");
     const afterLiveExceptions = (afterLive.body.data as Array<{ type: string }>).filter((item) => item.type === "Exception")
       .length;
     expect(afterLiveExceptions).toBeGreaterThan(beforeExceptions);
+  });
+
+  it("creates approval-gated cloud remediation for medium-confidence mappings", async () => {
+    const { app } = createApp();
+
+    const run = await request(app)
+      .post("/v1/cloud/tag-governance/enforce")
+      .set("x-actor-id", "operator-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        dryRun: false,
+        autoTag: true,
+        autoTagMinConfidence: 0.95,
+        approvalGatedConfidenceFloor: 0.6,
+        requireApprovalForMediumConfidence: true,
+        approvalType: "security",
+        approvalAssigneeId: "security-approver"
+      });
+
+    expect(run.status).toBe(200);
+    expect(run.body.data.mode).toBe("live");
+    expect(run.body.data.approvalsCreated).toBeGreaterThan(0);
+    expect(run.body.data.approvalWorkItemsCreated).toBeGreaterThan(0);
+
+    const approvalRemediation = run.body.data.remediations.find(
+      (item: { approvalId?: string; approvalWorkItemId?: string }) => item.approvalId && item.approvalWorkItemId
+    );
+    expect(approvalRemediation).toBeTruthy();
+    if (!approvalRemediation) {
+      throw new Error("Expected an approval-gated remediation record");
+    }
+    expect(approvalRemediation.approvalRequired.length).toBeGreaterThan(0);
+
+    const approvals = await request(app)
+      .get("/v1/approvals")
+      .set("x-actor-id", "security-1")
+      .set("x-actor-role", "security-analyst");
+    expect(approvals.status).toBe(200);
+    const approval = approvals.body.data.find((item: { id: string }) => item.id === approvalRemediation.approvalId);
+    expect(approval).toBeTruthy();
+    expect(approval.decision).toBe("pending");
+
+    const workItems = await request(app)
+      .get("/v1/work-items")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent");
+    expect(workItems.status).toBe(200);
+    const change = workItems.body.data.find((item: { id: string }) => item.id === approvalRemediation.approvalWorkItemId);
+    expect(change).toBeTruthy();
+    expect(change.type).toBe("Change");
+    expect(change.status).toBe("Waiting");
   });
 
   it("returns 404 when evidence export target work item does not exist", async () => {

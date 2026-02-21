@@ -5,6 +5,7 @@ import { Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { enforceCloudTags, getCloudTagCoverage } from "@/lib/apex";
 import { CloudTagCoverage, CloudTagEnforcementResult } from "@/lib/types";
@@ -17,6 +18,11 @@ export function CloudGovernance({ initialCoverage }: Props) {
   const [coverage, setCoverage] = React.useState(initialCoverage);
   const [tagInput, setTagInput] = React.useState(initialCoverage.requiredTags.join(","));
   const [autoTag, setAutoTag] = React.useState(true);
+  const [autoTagMinConfidence, setAutoTagMinConfidence] = React.useState("0.8");
+  const [approvalFloor, setApprovalFloor] = React.useState("0.6");
+  const [requireApproval, setRequireApproval] = React.useState(true);
+  const [approvalType, setApprovalType] = React.useState<"manager" | "app-owner" | "security" | "finance" | "it" | "custom">("security");
+  const [approvalAssigneeId, setApprovalAssigneeId] = React.useState("security-approver");
   const [status, setStatus] = React.useState("");
   const [lastRun, setLastRun] = React.useState<CloudTagEnforcementResult | null>(null);
 
@@ -37,16 +43,23 @@ export function CloudGovernance({ initialCoverage }: Props) {
 
   const runEnforcement = async (dryRun: boolean) => {
     try {
+      const minConfidenceValue = Number(autoTagMinConfidence);
+      const approvalFloorValue = Number(approvalFloor);
       const result = await enforceCloudTags({
         requiredTags,
         dryRun,
-        autoTag
+        autoTag,
+        autoTagMinConfidence: Number.isFinite(minConfidenceValue) ? minConfidenceValue : 0.8,
+        approvalGatedConfidenceFloor: Number.isFinite(approvalFloorValue) ? approvalFloorValue : 0.6,
+        requireApprovalForMediumConfidence: requireApproval,
+        approvalType,
+        approvalAssigneeId
       });
       setLastRun(result);
       setStatus(
         dryRun
-          ? `Dry-run complete: ${result.autoTaggedResources} resources can be auto-tagged, ${result.exceptionsCreated} exceptions.`
-          : `Live run complete: ${result.autoTaggedResources} resources tagged, ${result.exceptionsCreated} exceptions created.`
+          ? `Dry-run: ${result.autoTaggedResources} auto-tag candidates, ${result.approvalsCreated} approval-gated, ${result.exceptionsCreated} exceptions.`
+          : `Live run: ${result.autoTaggedResources} auto-tagged, ${result.approvalsCreated} approval(s) created, ${result.exceptionsCreated} exceptions.`
       );
       await refreshCoverage();
     } catch {
@@ -84,11 +97,54 @@ export function CloudGovernance({ initialCoverage }: Props) {
             </div>
           </div>
 
-          <div className="grid gap-2 text-sm text-zinc-600 sm:grid-cols-4">
+          <div className="grid gap-2 md:grid-cols-5">
+            <Input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={autoTagMinConfidence}
+              onChange={(event) => setAutoTagMinConfidence(event.target.value)}
+              placeholder="Auto-tag min confidence"
+            />
+            <Input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={approvalFloor}
+              onChange={(event) => setApprovalFloor(event.target.value)}
+              placeholder="Approval floor confidence"
+            />
+            <label className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 text-sm text-zinc-700">
+              <Switch checked={requireApproval} onCheckedChange={setRequireApproval} />
+              Require approval for medium confidence
+            </label>
+            <Select value={approvalType} onValueChange={(value) => setApprovalType(value as "manager" | "app-owner" | "security" | "finance" | "it" | "custom")}>
+              <SelectTrigger><SelectValue placeholder="Approval type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="security">security</SelectItem>
+                <SelectItem value="it">it</SelectItem>
+                <SelectItem value="manager">manager</SelectItem>
+                <SelectItem value="finance">finance</SelectItem>
+                <SelectItem value="app-owner">app-owner</SelectItem>
+                <SelectItem value="custom">custom</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={approvalAssigneeId}
+              onChange={(event) => setApprovalAssigneeId(event.target.value)}
+              placeholder="Approval assignee id"
+            />
+          </div>
+
+          <div className="grid gap-2 text-sm text-zinc-600 sm:grid-cols-6">
             <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2">Resources: {coverage.totalResources}</p>
             <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2">Compliant: {coverage.compliantResources}</p>
             <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2">Noncompliant: {coverage.nonCompliantResources}</p>
             <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2">Coverage: {coverage.coveragePercent}%</p>
+            <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2">Auto-tag ready: {coverage.autoTagReadyResources}</p>
+            <p className="rounded-lg border border-zinc-200 bg-white px-3 py-2">Approval needed: {coverage.approvalRequiredResources}</p>
           </div>
 
           {status ? <p className="text-xs text-zinc-500">{status}</p> : null}
@@ -106,6 +162,13 @@ export function CloudGovernance({ initialCoverage }: Props) {
               <p className="text-xs text-zinc-500">
                 {item.provider} • owner {item.owner} • missing {item.missingTags.join(", ")}
               </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-zinc-600">
+                {item.tagSuggestions.map((suggestion) => (
+                  <span key={`${item.resourceId}-${suggestion.tag}`} className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
+                    {suggestion.tag}:{suggestion.value ?? "n/a"} • {Math.round(suggestion.confidence * 100)}% • {suggestion.decision}
+                  </span>
+                ))}
+              </div>
             </div>
           ))}
         </CardContent>
@@ -118,11 +181,11 @@ export function CloudGovernance({ initialCoverage }: Props) {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-zinc-600">
             <p>
-              Mode: {lastRun.mode} • evaluated: {lastRun.resourcesEvaluated} • auto-tagged: {lastRun.autoTaggedResources} • exceptions: {lastRun.exceptionsCreated}
+              Mode: {lastRun.mode} • evaluated: {lastRun.resourcesEvaluated} • auto-tagged: {lastRun.autoTaggedResources} • approvals: {lastRun.approvalsCreated} • exceptions: {lastRun.exceptionsCreated}
             </p>
             {lastRun.remediations.slice(0, 6).map((item) => (
               <p key={item.resourceId} className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs">
-                {item.resourceId} • tagged [{item.autoTagged.join(",") || "none"}] • unresolved [{item.unresolved.join(",") || "none"}]
+                {item.resourceId} • tagged [{item.autoTagged.join(",") || "none"}] • approval [{item.approvalRequired.map((entry) => entry.tag).join(",") || "none"}] • unresolved [{item.unresolved.join(",") || "none"}]
               </p>
             ))}
           </CardContent>

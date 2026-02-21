@@ -833,6 +833,15 @@ export interface CloudTagNonCompliant {
   owner: string;
   tags: Record<string, string>;
   missingTags: string[];
+  tagSuggestions: Array<{
+    tag: string;
+    value?: string;
+    confidence: number;
+    source: string;
+    decision: "auto-tag" | "approval-required" | "unresolved";
+  }>;
+  autoTagReadyTags: number;
+  approvalRequiredTags: number;
 }
 
 export interface CloudTagCoverage {
@@ -841,19 +850,41 @@ export interface CloudTagCoverage {
   compliantResources: number;
   nonCompliantResources: number;
   coveragePercent: number;
+  autoTagReadyResources: number;
+  approvalRequiredResources: number;
   nonCompliant: CloudTagNonCompliant[];
 }
 
 export interface CloudTagEnforcementResult {
   mode: "dry-run" | "live";
   requiredTags: string[];
+  autoTagMinConfidence: number;
+  approvalGatedConfidenceFloor: number;
+  requireApprovalForMediumConfidence: boolean;
   resourcesEvaluated: number;
   autoTaggedResources: number;
+  approvalsCreated: number;
+  approvalWorkItemsCreated: number;
   exceptionsCreated: number;
   remediations: Array<{
     resourceId: string;
     autoTagged: string[];
     unresolved: string[];
+    decisions: Array<{
+      tag: string;
+      value?: string;
+      confidence: number;
+      source: string;
+      decision: "auto-tag" | "approval-required" | "unresolved";
+    }>;
+    approvalRequired: Array<{
+      tag: string;
+      value: string;
+      confidence: number;
+      source: string;
+    }>;
+    approvalId?: string;
+    approvalWorkItemId?: string;
     exceptionId?: string;
   }>;
 }

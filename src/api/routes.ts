@@ -176,6 +176,115 @@ const missingTagsForResource = (object: GraphObject, requiredTags: string[]): st
   });
 };
 
+type CloudTagSuggestionDecision = "auto-tag" | "approval-required" | "unresolved";
+type CloudTagSuggestion = {
+  tag: string;
+  value?: string;
+  confidence: number;
+  source: string;
+  decision: CloudTagSuggestionDecision;
+};
+
+const inferEnvironmentFromName = (name: string): string | undefined => {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.includes("prod") || normalized.includes("production")) {
+    return "prod";
+  }
+  if (normalized.includes("stage") || normalized.includes("stg")) {
+    return "stage";
+  }
+  if (normalized.includes("dev") || normalized.includes("development")) {
+    return "dev";
+  }
+  return undefined;
+};
+
+const inferCloudTagCandidate = (resource: GraphObject, tag: string): Omit<CloudTagSuggestion, "decision"> | undefined => {
+  const fields = resource.fields;
+  if (tag === "owner") {
+    const owner = String(fields.owner ?? "").trim();
+    if (owner && owner.toLowerCase() !== "unknown") {
+      return { tag, value: owner, confidence: 0.95, source: "field:owner" };
+    }
+    const ownerEmail = String(fields.owner_email ?? "").trim();
+    if (ownerEmail) {
+      return { tag, value: ownerEmail, confidence: 0.9, source: "field:owner_email" };
+    }
+    const teamOwner = String(fields.team_owner ?? "").trim();
+    if (teamOwner) {
+      return { tag, value: teamOwner, confidence: 0.75, source: "field:team_owner" };
+    }
+    return undefined;
+  }
+
+  if (tag === "cost_center") {
+    const billing = String(fields.billing_cost_center ?? "").trim();
+    if (billing) {
+      return { tag, value: billing, confidence: 0.9, source: "field:billing_cost_center" };
+    }
+    const costCenter = String(fields.cost_center ?? "").trim();
+    if (costCenter) {
+      return { tag, value: costCenter, confidence: 0.8, source: "field:cost_center" };
+    }
+    return undefined;
+  }
+
+  if (tag === "environment") {
+    const environment = String(fields.environment ?? "").trim();
+    if (environment) {
+      return { tag, value: environment, confidence: 0.85, source: "field:environment" };
+    }
+    const inferred = inferEnvironmentFromName(String(fields.name ?? ""));
+    if (inferred) {
+      return { tag, value: inferred, confidence: 0.65, source: "inferred:name-pattern" };
+    }
+    return undefined;
+  }
+
+  if (tag === "data_classification") {
+    const classification = String(fields.data_classification ?? "").trim();
+    if (classification) {
+      return { tag, value: classification, confidence: 0.9, source: "field:data_classification" };
+    }
+    return { tag, value: "internal", confidence: 0.45, source: "default:internal" };
+  }
+
+  return undefined;
+};
+
+const decideCloudTagSuggestion = (
+  candidate: Omit<CloudTagSuggestion, "decision"> | undefined,
+  options: {
+    autoTagEnabled: boolean;
+    autoTagMinConfidence: number;
+    approvalGatedConfidenceFloor: number;
+    requireApprovalForMediumConfidence: boolean;
+  }
+): CloudTagSuggestion => {
+  if (!candidate) {
+    return {
+      tag: "",
+      confidence: 0,
+      source: "none",
+      decision: "unresolved"
+    };
+  }
+
+  if (!options.autoTagEnabled) {
+    return { ...candidate, decision: "unresolved" };
+  }
+  if (candidate.confidence >= options.autoTagMinConfidence) {
+    return { ...candidate, decision: "auto-tag" };
+  }
+  if (options.requireApprovalForMediumConfidence && candidate.confidence >= options.approvalGatedConfidenceFloor) {
+    return { ...candidate, decision: "approval-required" };
+  }
+  return { ...candidate, decision: "unresolved" };
+};
+
 const buildWorkflowSimulationPlan = (definition: { steps: Array<{ id: string; name: string; type: string; riskLevel: "low" | "medium" | "high" }> }) =>
   definition.steps.map((step, index) => ({
     order: index + 1,
@@ -2562,19 +2671,39 @@ export const createRoutes = (store: ApexStore): Router => {
     const nonCompliant = resources
       .map((resource) => {
         const missingTags = missingTagsForResource(resource, requiredTags);
+        const tagSuggestions = missingTags.map((tag) => {
+          const candidate = inferCloudTagCandidate(resource, tag);
+          const decided = decideCloudTagSuggestion(candidate, {
+            autoTagEnabled: true,
+            autoTagMinConfidence: 0.8,
+            approvalGatedConfidenceFloor: 0.6,
+            requireApprovalForMediumConfidence: true
+          });
+          return {
+            ...decided,
+            tag
+          };
+        });
+        const autoTagReadyTags = tagSuggestions.filter((item) => item.decision === "auto-tag").length;
+        const approvalRequiredTags = tagSuggestions.filter((item) => item.decision === "approval-required").length;
         return {
           resourceId: resource.id,
           name: String(resource.fields.name ?? resource.id),
           provider: String(resource.fields.provider ?? "unknown"),
           owner: String(resource.fields.owner ?? "unknown"),
           tags: parseResourceTags(resource.fields.tags),
-          missingTags
+          missingTags,
+          tagSuggestions,
+          autoTagReadyTags,
+          approvalRequiredTags
         };
       })
       .filter((resource) => resource.missingTags.length > 0);
 
     const compliantResources = resources.length - nonCompliant.length;
     const coveragePercent = resources.length === 0 ? 100 : Math.round((compliantResources / resources.length) * 100);
+    const autoTagReadyResources = nonCompliant.filter((resource) => resource.autoTagReadyTags > 0).length;
+    const approvalRequiredResources = nonCompliant.filter((resource) => resource.approvalRequiredTags > 0).length;
 
     res.json({
       data: {
@@ -2583,6 +2712,8 @@ export const createRoutes = (store: ApexStore): Router => {
         compliantResources,
         nonCompliantResources: nonCompliant.length,
         coveragePercent,
+        autoTagReadyResources,
+        approvalRequiredResources,
         nonCompliant
       }
     });
@@ -2599,10 +2730,21 @@ export const createRoutes = (store: ApexStore): Router => {
       resourceId: string;
       autoTagged: string[];
       unresolved: string[];
+      decisions: CloudTagSuggestion[];
+      approvalRequired: Array<{
+        tag: string;
+        value: string;
+        confidence: number;
+        source: string;
+      }>;
+      approvalId?: string;
+      approvalWorkItemId?: string;
       exceptionId?: string;
     }> = [];
     let autoTaggedCount = 0;
     let exceptionsCreated = 0;
+    let approvalsCreated = 0;
+    let approvalWorkItemsCreated = 0;
 
     for (const resource of resources) {
       const missing = missingTagsForResource(resource, requiredTags);
@@ -2613,31 +2755,36 @@ export const createRoutes = (store: ApexStore): Router => {
       const tags = parseResourceTags(resource.fields.tags);
       const autoTagged: string[] = [];
       const unresolved: string[] = [];
+      const decisions: CloudTagSuggestion[] = [];
+      const approvalRequired: Array<{ tag: string; value: string; confidence: number; source: string }> = [];
 
       for (const tag of missing) {
-        if (!parsed.autoTag) {
-          unresolved.push(tag);
+        const candidate = inferCloudTagCandidate(resource, tag);
+        const decided = decideCloudTagSuggestion(candidate, {
+          autoTagEnabled: parsed.autoTag,
+          autoTagMinConfidence: parsed.autoTagMinConfidence,
+          approvalGatedConfidenceFloor: parsed.approvalGatedConfidenceFloor,
+          requireApprovalForMediumConfidence: parsed.requireApprovalForMediumConfidence
+        });
+        decisions.push({ ...decided, tag });
+
+        if (decided.decision === "auto-tag" && decided.value) {
+          tags[tag] = decided.value;
+          autoTagged.push(tag);
           continue;
         }
 
-        const mappedValue =
-          tag === "owner"
-            ? String(resource.fields.owner ?? resource.fields.team_owner ?? "")
-            : tag === "cost_center"
-              ? String(resource.fields.billing_cost_center ?? resource.fields.cost_center ?? "")
-              : tag === "environment"
-                ? String(resource.fields.environment ?? "")
-                : tag === "data_classification"
-                  ? String(resource.fields.data_classification ?? "internal")
-                  : "";
-
-        if (!mappedValue) {
-          unresolved.push(tag);
+        if (decided.decision === "approval-required" && decided.value) {
+          approvalRequired.push({
+            tag,
+            value: decided.value,
+            confidence: decided.confidence,
+            source: decided.source
+          });
           continue;
         }
 
-        tags[tag] = mappedValue;
-        autoTagged.push(tag);
+        unresolved.push(tag);
       }
 
       if (!parsed.dryRun && autoTagged.length > 0) {
@@ -2658,6 +2805,64 @@ export const createRoutes = (store: ApexStore): Router => {
 
       if (autoTagged.length > 0) {
         autoTaggedCount += 1;
+      }
+
+      let approvalId: string | undefined;
+      let approvalWorkItemId: string | undefined;
+      if (!parsed.dryRun && approvalRequired.length > 0) {
+        const changeItem: WorkItem = {
+          id: store.createId(),
+          tenantId: resource.tenantId,
+          workspaceId: resource.workspaceId,
+          type: "Change",
+          status: "Waiting",
+          priority: approvalRequired.some((item) => item.confidence < 0.7) ? "P1" : "P2",
+          title: `Approve cloud tag remediation: ${String(resource.fields.name ?? resource.id)}`,
+          description: approvalRequired
+            .map((item) => `${item.tag}=${item.value} (${Math.round(item.confidence * 100)}% from ${item.source})`)
+            .join("; "),
+          requesterId: actor.id,
+          assignmentGroup: "Cloud Platform",
+          linkedObjectIds: [resource.id],
+          tags: ["cloud", "tag-governance", "approval-required"],
+          comments: [],
+          attachments: [],
+          createdAt: nowIso(),
+          updatedAt: nowIso()
+        };
+        store.workItems.set(changeItem.id, changeItem);
+        approvalWorkItemId = changeItem.id;
+        approvalWorkItemsCreated += 1;
+
+        const approval: ApprovalRecord = {
+          id: store.createId(),
+          tenantId: resource.tenantId,
+          workspaceId: resource.workspaceId,
+          workItemId: changeItem.id,
+          type: parsed.approvalType,
+          approverId: parsed.approvalAssigneeId,
+          decision: "pending",
+          comment: `Approve cloud auto-tag candidates for ${String(resource.fields.name ?? resource.id)}`,
+          createdAt: nowIso()
+        };
+        store.approvals.set(approval.id, approval);
+        approvalId = approval.id;
+        approvalsCreated += 1;
+
+        store.pushTimeline({
+          tenantId: resource.tenantId,
+          workspaceId: resource.workspaceId,
+          entityType: "approval",
+          entityId: approval.id,
+          eventType: "approval.requested",
+          actor: actor.id,
+          createdAt: nowIso(),
+          payload: {
+            workItemId: changeItem.id,
+            resourceId: resource.id,
+            approvalRequired
+          }
+        });
       }
 
       let exceptionId: string | undefined;
@@ -2689,6 +2894,10 @@ export const createRoutes = (store: ApexStore): Router => {
         resourceId: resource.id,
         autoTagged,
         unresolved,
+        decisions,
+        approvalRequired,
+        approvalId,
+        approvalWorkItemId,
         exceptionId
       });
     }
@@ -2697,8 +2906,13 @@ export const createRoutes = (store: ApexStore): Router => {
       data: {
         mode: parsed.dryRun ? "dry-run" : "live",
         requiredTags,
+        autoTagMinConfidence: parsed.autoTagMinConfidence,
+        approvalGatedConfidenceFloor: parsed.approvalGatedConfidenceFloor,
+        requireApprovalForMediumConfidence: parsed.requireApprovalForMediumConfidence,
         resourcesEvaluated: resources.length,
         autoTaggedResources: autoTaggedCount,
+        approvalsCreated,
+        approvalWorkItemsCreated,
         exceptionsCreated,
         remediations
       }

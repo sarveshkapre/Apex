@@ -550,7 +550,19 @@ export const cloudTagCoverageSchema = z.object({
 export const cloudTagEnforceSchema = z.object({
   requiredTags: z.array(z.string().min(1)).optional(),
   dryRun: z.boolean().default(true),
-  autoTag: z.boolean().default(true)
+  autoTag: z.boolean().default(true),
+  autoTagMinConfidence: z.number().min(0).max(1).default(0.8),
+  approvalGatedConfidenceFloor: z.number().min(0).max(1).default(0.6),
+  requireApprovalForMediumConfidence: z.boolean().default(true),
+  approvalType: z.enum(["manager", "app-owner", "security", "finance", "it", "custom"]).default("security"),
+  approvalAssigneeId: z.string().min(1).default("security-approver")
+}).superRefine((value, ctx) => {
+  if (value.approvalGatedConfidenceFloor > value.autoTagMinConfidence) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "approvalGatedConfidenceFloor must be less than or equal to autoTagMinConfidence"
+    });
+  }
 });
 
 export const saasReclaimPolicyCreateSchema = z.object({

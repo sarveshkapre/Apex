@@ -1733,6 +1733,8 @@ export const getCloudTagCoverage = async (requiredTags?: string[]): Promise<Clou
       compliantResources: 0,
       nonCompliantResources: 0,
       coveragePercent: 100,
+      autoTagReadyResources: 0,
+      approvalRequiredResources: 0,
       nonCompliant: []
     }
   );
@@ -1742,6 +1744,11 @@ export const enforceCloudTags = async (payload: {
   requiredTags?: string[];
   dryRun: boolean;
   autoTag: boolean;
+  autoTagMinConfidence?: number;
+  approvalGatedConfidenceFloor?: number;
+  requireApprovalForMediumConfidence?: boolean;
+  approvalType?: "manager" | "app-owner" | "security" | "finance" | "it" | "custom";
+  approvalAssigneeId?: string;
 }): Promise<CloudTagEnforcementResult> => {
   const response = await fetch(`${API_BASE}/cloud/tag-governance/enforce`, {
     method: "POST",
