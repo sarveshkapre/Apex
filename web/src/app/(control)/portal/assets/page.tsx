@@ -1,7 +1,6 @@
-import { AlertTriangle, Boxes, RotateCcw, ShieldAlert, Wrench } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
+import { LinkedRequestActions } from "@/components/portal/linked-request-actions";
 import { StatusBadge } from "@/components/app/status-badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listObjectsByType } from "@/lib/apex";
 
@@ -28,13 +27,53 @@ export default async function AssetsPage() {
                 <p>Assigned: {String(device.fields.assigned_date ?? "-")}</p>
                 <p>Warranty: {String(device.fields.warranty_end_date ?? "-")}</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" className="rounded-lg"><Wrench className="mr-1.5 h-3.5 w-3.5" />Report issue</Button>
-                <Button size="sm" variant="outline" className="rounded-lg"><Boxes className="mr-1.5 h-3.5 w-3.5" />Request accessory</Button>
-                <Button size="sm" variant="outline" className="rounded-lg"><RotateCcw className="mr-1.5 h-3.5 w-3.5" />Initiate return</Button>
-                <Button size="sm" variant="outline" className="rounded-lg text-rose-700"><AlertTriangle className="mr-1.5 h-3.5 w-3.5" />Report lost/stolen</Button>
-                <Button size="sm" variant="outline" className="rounded-lg"><ShieldAlert className="mr-1.5 h-3.5 w-3.5" />Request replacement</Button>
-              </div>
+              <LinkedRequestActions
+                objectId={device.id}
+                assignmentGroup="Endpoint Operations"
+                actions={[
+                  {
+                    label: "Report issue",
+                    type: "Incident",
+                    priority: "P2",
+                    title: `Device issue: ${String(device.fields.model ?? device.id)}`,
+                    description: "User-reported device issue from My Assets.",
+                    tags: ["device", "issue"]
+                  },
+                  {
+                    label: "Request accessory",
+                    type: "Request",
+                    priority: "P3",
+                    title: `Accessory request for ${String(device.fields.asset_tag ?? device.id)}`,
+                    description: "Accessory request initiated from My Assets.",
+                    tags: ["device", "accessory"]
+                  },
+                  {
+                    label: "Initiate return",
+                    type: "Request",
+                    priority: "P2",
+                    title: `Return workflow for ${String(device.fields.asset_tag ?? device.id)}`,
+                    description: "Device return request initiated by end user.",
+                    tags: ["device", "return"]
+                  },
+                  {
+                    label: "Report lost/stolen",
+                    type: "Incident",
+                    priority: "P1",
+                    title: `Lost/stolen report: ${String(device.fields.asset_tag ?? device.id)}`,
+                    description: "Urgent lost or stolen device report.",
+                    tags: ["device", "security", "lost-stolen"],
+                    className: "text-rose-700"
+                  },
+                  {
+                    label: "Request replacement",
+                    type: "Request",
+                    priority: "P2",
+                    title: `Replacement request for ${String(device.fields.asset_tag ?? device.id)}`,
+                    description: "Replacement request submitted from My Assets.",
+                    tags: ["device", "replacement"]
+                  }
+                ]}
+              />
             </CardContent>
           </Card>
         ))}

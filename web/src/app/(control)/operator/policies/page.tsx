@@ -1,10 +1,10 @@
 import { MetricCard } from "@/components/app/metric-card";
 import { PageHeader } from "@/components/app/page-header";
 import { PolicyCenter } from "@/components/operator/policy-center";
-import { getQualityDashboard, listPolicies } from "@/lib/apex";
+import { getQualityDashboard, listPolicies, listPolicyExceptions } from "@/lib/apex";
 
 export default async function PoliciesPage() {
-  const [quality, policies] = await Promise.all([getQualityDashboard(), listPolicies()]);
+  const [quality, policies, exceptions] = await Promise.all([getQualityDashboard(), listPolicies(), listPolicyExceptions()]);
 
   return (
     <div className="space-y-4">
@@ -20,7 +20,7 @@ export default async function PoliciesPage() {
         <MetricCard title="Coverage" value={`${Math.round(quality.summary.coverage * 100)}%`} helper="Control-plane signal coverage" />
       </section>
 
-      <PolicyCenter initial={policies} />
+      <PolicyCenter initial={policies} initialExceptions={exceptions} />
     </div>
   );
 }

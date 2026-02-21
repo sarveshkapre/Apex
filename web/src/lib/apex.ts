@@ -20,6 +20,7 @@ import {
   KnowledgeArticle,
   NotificationRule,
   PolicyDefinition,
+  PolicyException,
   PolicyEvaluationResult,
   QualityDashboard,
   SavedView,
@@ -474,6 +475,37 @@ export const evaluatePolicy = async (policyId: string): Promise<PolicyEvaluation
     },
     { policyId, evaluatedCount: 0, exceptionCount: 0 }
   );
+};
+
+export const listPolicyExceptions = async (policyId?: string, status?: "open" | "waived" | "resolved"): Promise<PolicyException[]> => {
+  const params = new URLSearchParams();
+  if (policyId) {
+    params.set("policyId", policyId);
+  }
+  if (status) {
+    params.set("status", status);
+  }
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return safe(() => get<PolicyException[]>(`/admin/policies/exceptions${query}`), []);
+};
+
+export const actionPolicyException = async (
+  exceptionId: string,
+  payload: {
+    action: "waive" | "resolve" | "reopen" | "renew";
+    reason: string;
+    waiverExpiresAt?: string;
+  }
+) => {
+  return fetch(`${API_BASE}/admin/policies/exceptions/${exceptionId}/action`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify(payload)
+  });
 };
 
 export const listConnectorConfigs = async (): Promise<ConnectorConfig[]> => {

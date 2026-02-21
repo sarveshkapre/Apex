@@ -1,7 +1,6 @@
-import { Clock3, ShieldCheck, UserMinus, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
+import { LinkedRequestActions } from "@/components/portal/linked-request-actions";
 import { StatusBadge } from "@/components/app/status-badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listObjectsByType } from "@/lib/apex";
 
@@ -28,12 +27,44 @@ export default async function AccessPage() {
                 <p>Granted on: {String(account.fields.created_at ?? "-")}</p>
                 <p>Expires on: {String(account.fields.expires_on ?? "-")}</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" className="rounded-lg"><UserPlus className="mr-1.5 h-3.5 w-3.5" />Request elevated access</Button>
-                <Button size="sm" variant="outline" className="rounded-lg"><ShieldCheck className="mr-1.5 h-3.5 w-3.5" />Report access issue</Button>
-                <Button size="sm" variant="outline" className="rounded-lg"><UserMinus className="mr-1.5 h-3.5 w-3.5" />Voluntary relinquish</Button>
-                <Button size="sm" variant="outline" className="rounded-lg"><Clock3 className="mr-1.5 h-3.5 w-3.5" />Request duration extension</Button>
-              </div>
+              <LinkedRequestActions
+                objectId={account.id}
+                assignmentGroup="Access Operations"
+                actions={[
+                  {
+                    label: "Request elevated access",
+                    type: "Request",
+                    priority: "P2",
+                    title: `Elevated access request for ${String(account.fields.app ?? account.id)}`,
+                    description: "User requested elevated privileges from My Access.",
+                    tags: ["access", "elevation"]
+                  },
+                  {
+                    label: "Report access issue",
+                    type: "Incident",
+                    priority: "P2",
+                    title: `Access issue for ${String(account.fields.app ?? account.id)}`,
+                    description: "User reported access issue from My Access.",
+                    tags: ["access", "incident"]
+                  },
+                  {
+                    label: "Voluntary relinquish",
+                    type: "Request",
+                    priority: "P3",
+                    title: `Relinquish access: ${String(account.fields.app ?? account.id)}`,
+                    description: "User voluntarily relinquished access.",
+                    tags: ["access", "reclaim"]
+                  },
+                  {
+                    label: "Request duration extension",
+                    type: "Request",
+                    priority: "P3",
+                    title: `Duration extension for ${String(account.fields.app ?? account.id)}`,
+                    description: "User requested extension for temporary access.",
+                    tags: ["access", "extension"]
+                  }
+                ]}
+              />
             </CardContent>
           </Card>
         ))}

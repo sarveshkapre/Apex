@@ -122,6 +122,12 @@ export const policyCreateSchema = z.object({
   active: z.boolean().default(true)
 });
 
+export const policyExceptionActionSchema = z.object({
+  action: z.enum(["waive", "resolve", "reopen", "renew"]),
+  reason: z.string().min(1),
+  waiverExpiresAt: z.string().datetime().optional()
+});
+
 export const connectorCreateSchema = z.object({
   tenantId: z.string().min(1),
   workspaceId: z.string().min(1),

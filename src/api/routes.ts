@@ -50,6 +50,7 @@ import {
   notificationRuleCreateSchema,
   objectCreateSchema,
   objectUpdateSchema,
+  policyExceptionActionSchema,
   policyCreateSchema,
   relationshipCreateSchema,
   runWorkflowSchema,
@@ -1361,6 +1362,19 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data: [...store.policies.values()] });
   });
 
+  router.get("/admin/policies/exceptions", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:view"));
+    const policyId = req.query.policyId ? String(req.query.policyId) : undefined;
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const data = [...store.policyExceptions.values()].filter(
+      (item) =>
+        (policyId ? item.policyId === policyId : true) &&
+        (status ? item.status === status : true)
+    );
+    res.json({ data });
+  });
+
   router.post("/admin/policies", (req, res) => {
     const actor = getActor(req.headers);
     permission(can(actor.role, "workflow:edit"));
@@ -1399,6 +1413,55 @@ export const createRoutes = (store: ApexStore): Router => {
   router.get("/admin/policies/:id/exceptions", (req, res) => {
     const data = [...store.policyExceptions.values()].filter((item) => item.policyId === req.params.id);
     res.json({ data });
+  });
+
+  router.post("/admin/policies/exceptions/:id/action", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = policyExceptionActionSchema.parse(req.body);
+    const exception = store.policyExceptions.get(req.params.id);
+    if (!exception) {
+      res.status(404).json({ error: "Policy exception not found" });
+      return;
+    }
+
+    if (parsed.action === "waive" || parsed.action === "renew") {
+      if (!parsed.waiverExpiresAt) {
+        res.status(400).json({ error: "waiverExpiresAt is required for waive/renew actions" });
+        return;
+      }
+      exception.status = "waived";
+      exception.waiverExpiresAt = parsed.waiverExpiresAt;
+    } else if (parsed.action === "resolve") {
+      exception.status = "resolved";
+      exception.waiverExpiresAt = undefined;
+    } else if (parsed.action === "reopen") {
+      exception.status = "open";
+      exception.waiverExpiresAt = undefined;
+    }
+
+    store.policyExceptions.set(exception.id, exception);
+    const policy = store.policies.get(exception.policyId);
+    if (policy) {
+      store.pushTimeline({
+        tenantId: policy.tenantId,
+        workspaceId: policy.workspaceId,
+        entityType: "policy",
+        entityId: policy.id,
+        eventType: "policy.exception.updated",
+        actor: actor.id,
+        createdAt: nowIso(),
+        payload: {
+          exceptionId: exception.id,
+          action: parsed.action,
+          reason: parsed.reason,
+          status: exception.status,
+          waiverExpiresAt: exception.waiverExpiresAt
+        }
+      });
+    }
+
+    res.json({ data: exception });
   });
 
   router.get("/admin/connectors", (_req, res) => {

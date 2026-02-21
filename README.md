@@ -37,6 +37,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Admin/operations APIs:
   - custom schemas (`/v1/admin/schemas`)
   - policy CRUD + evaluation (`/v1/admin/policies`, `/v1/admin/policies/:id/evaluate`)
+  - policy exceptions lifecycle (`/v1/admin/policies/exceptions`, `/v1/admin/policies/exceptions/:id/action`, `/v1/admin/policies/:id/exceptions`)
   - connector CRUD + run history (`/v1/admin/connectors`, `/v1/admin/connectors/:id/run`)
   - notification rules (`/v1/admin/notifications`)
   - config versioning (`/v1/admin/config-versions`, publish/rollback state transitions)
@@ -69,9 +70,11 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Queue Center external ticket comment sync for overlay-mode collaboration
 - Admin CSV import wizard and config publish/rollback actions
 - Portal catalog request dialog with dynamic form preview + policy-driven approval submission
+- Portal asset/access action buttons now create linked requests/incidents against selected objects
 - Operator Cloud Tag Governance module with dry-run/live remediation controls
 - Reports evidence export panel with downloadable JSON package per work item
 - Admin catalog builder for item creation, workflow mapping, dynamic fields, and activation toggles
+- Policy exception lifecycle controls (waive/renew/resolve/reopen) in Policies & Compliance
 
 ## Run
 
@@ -121,6 +124,7 @@ npm --prefix web run build
 - `GET/POST /v1/admin/rbac/sod-rules`
 - `GET/POST /v1/admin/rbac/approval-matrix`
 - `POST /v1/admin/rbac/authorize`
+- `GET /v1/admin/policies/exceptions`, `POST /v1/admin/policies/exceptions/:id/action`
 
 ## Actor/role simulation
 

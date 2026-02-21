@@ -107,6 +107,7 @@ export type TimelineEventType =
   | "approval.decided"
   | "exception.created"
   | "policy.evaluated"
+  | "policy.exception.updated"
   | "external-ticket.linked"
   | "connector.sync"
   | "config.published"

@@ -205,6 +205,16 @@ export interface PolicyEvaluationResult {
   exceptionCount: number;
 }
 
+export interface PolicyException {
+  id: string;
+  policyId: string;
+  objectId: string;
+  reason: string;
+  status: "open" | "waived" | "resolved";
+  waiverExpiresAt?: string;
+  createdAt: string;
+}
+
 export interface ConnectorConfig {
   id: string;
   name: string;

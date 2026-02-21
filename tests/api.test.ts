@@ -371,4 +371,90 @@ describe("Apex API", () => {
       .set("x-actor-role", "auditor");
     expect(response.status).toBe(404);
   });
+
+  it("supports policy exception waiver lifecycle actions", async () => {
+    const { app } = createApp();
+
+    const policy = await request(app)
+      .post("/v1/admin/policies")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: "Intentional fail policy",
+        description: "Generate an exception for lifecycle testing",
+        objectType: "Device",
+        severity: "medium",
+        expression: {
+          field: "encryption_state",
+          operator: "equals",
+          value: "disabled"
+        },
+        remediation: {
+          notify: true,
+          createTask: false
+        },
+        active: true
+      });
+    expect(policy.status).toBe(201);
+
+    const evaluated = await request(app)
+      .post(`/v1/admin/policies/${policy.body.data.id}/evaluate`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({});
+    expect(evaluated.status).toBe(200);
+    expect(evaluated.body.data.exceptionCount).toBeGreaterThan(0);
+
+    const listed = await request(app)
+      .get(`/v1/admin/policies/${policy.body.data.id}/exceptions`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin");
+    expect(listed.status).toBe(200);
+    const exceptionId = listed.body.data[0].id as string;
+
+    const missingExpiry = await request(app)
+      .post(`/v1/admin/policies/exceptions/${exceptionId}/action`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ action: "waive", reason: "Approved exception" });
+    expect(missingExpiry.status).toBe(400);
+
+    const waived = await request(app)
+      .post(`/v1/admin/policies/exceptions/${exceptionId}/action`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        action: "waive",
+        reason: "Temporary exception approved",
+        waiverExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      });
+    expect(waived.status).toBe(200);
+    expect(waived.body.data.status).toBe("waived");
+
+    const filtered = await request(app)
+      .get("/v1/admin/policies/exceptions")
+      .query({ status: "waived" })
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin");
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.data.some((item: { id: string }) => item.id === exceptionId)).toBe(true);
+
+    const reopened = await request(app)
+      .post(`/v1/admin/policies/exceptions/${exceptionId}/action`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ action: "reopen", reason: "Waiver expired" });
+    expect(reopened.status).toBe(200);
+    expect(reopened.body.data.status).toBe("open");
+
+    const resolved = await request(app)
+      .post(`/v1/admin/policies/exceptions/${exceptionId}/action`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ action: "resolve", reason: "Compliant now" });
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.data.status).toBe("resolved");
+  });
 });
