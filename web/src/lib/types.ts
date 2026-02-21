@@ -40,6 +40,19 @@ export interface WorkItem {
   updatedAt: string;
 }
 
+export type WorkItemBulkAction = "assign" | "priority" | "tag" | "comment" | "workflow-step" | "export";
+
+export interface WorkItemBulkResult {
+  action: WorkItemBulkAction;
+  selectedCount: number;
+  updatedCount?: number;
+  updatedIds?: string[];
+  matchedCount?: number;
+  format?: "csv";
+  fileName?: string;
+  content?: string;
+}
+
 export interface Approval {
   id: string;
   workItemId: string;

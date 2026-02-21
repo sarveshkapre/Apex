@@ -617,6 +617,143 @@ describe("Apex API", () => {
     expect(exportArtifact.body.data.content.includes("asset_tag")).toBe(true);
   });
 
+  it("applies queue bulk actions across selected work items", async () => {
+    const { app } = createApp();
+
+    const createdOne = await request(app)
+      .post("/v1/work-items")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Request",
+        priority: "P3",
+        title: "Bulk test item one",
+        requesterId: "person-1",
+        linkedObjectIds: [],
+        tags: []
+      });
+    expect(createdOne.status).toBe(201);
+
+    const createdTwo = await request(app)
+      .post("/v1/work-items")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Incident",
+        priority: "P3",
+        title: "Bulk test item two",
+        requesterId: "person-2",
+        linkedObjectIds: [],
+        tags: []
+      });
+    expect(createdTwo.status).toBe(201);
+
+    const ids = [createdOne.body.data.id, createdTwo.body.data.id] as string[];
+
+    const assign = await request(app)
+      .post("/v1/work-items/bulk")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        workItemIds: ids,
+        action: "assign",
+        assigneeId: "agent-9",
+        assignmentGroup: "Endpoint Ops"
+      });
+    expect(assign.status).toBe(200);
+    expect(assign.body.data.updatedCount).toBe(2);
+
+    const priority = await request(app)
+      .post("/v1/work-items/bulk")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        workItemIds: ids,
+        action: "priority",
+        priority: "P1"
+      });
+    expect(priority.status).toBe(200);
+
+    const tagged = await request(app)
+      .post("/v1/work-items/bulk")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        workItemIds: ids,
+        action: "tag",
+        tag: "bulk-updated"
+      });
+    expect(tagged.status).toBe(200);
+
+    const commented = await request(app)
+      .post("/v1/work-items/bulk")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        workItemIds: ids,
+        action: "comment",
+        comment: "Bulk comment applied"
+      });
+    expect(commented.status).toBe(200);
+
+    const advanced = await request(app)
+      .post("/v1/work-items/bulk")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        workItemIds: ids,
+        action: "workflow-step",
+        workflowStep: "triage"
+      });
+    expect(advanced.status).toBe(200);
+
+    const listed = await request(app).get("/v1/work-items");
+    const updated = listed.body.data.filter((item: { id: string }) => ids.includes(item.id));
+    expect(updated.length).toBe(2);
+    expect(updated.every((item: { assigneeId?: string }) => item.assigneeId === "agent-9")).toBe(true);
+    expect(updated.every((item: { assignmentGroup?: string }) => item.assignmentGroup === "Endpoint Ops")).toBe(true);
+    expect(updated.every((item: { priority: string }) => item.priority === "P1")).toBe(true);
+    expect(updated.every((item: { status: string }) => item.status === "Triaged")).toBe(true);
+    expect(updated.every((item: { tags: string[] }) => item.tags.includes("bulk-updated"))).toBe(true);
+    expect(updated.every((item: { comments: Array<{ body: string }> }) => item.comments.some((comment) => comment.body === "Bulk comment applied"))).toBe(true);
+  });
+
+  it("exports selected queue work items and validates bulk action payloads", async () => {
+    const { app } = createApp();
+
+    const workItems = await request(app).get("/v1/work-items");
+    expect(workItems.status).toBe(200);
+    const ids = (workItems.body.data as Array<{ id: string }>).slice(0, 2).map((item) => item.id);
+    expect(ids.length).toBeGreaterThan(0);
+
+    const exported = await request(app)
+      .post("/v1/work-items/bulk")
+      .set("x-actor-id", "auditor-1")
+      .set("x-actor-role", "auditor")
+      .send({
+        workItemIds: ids,
+        action: "export"
+      });
+    expect(exported.status).toBe(200);
+    expect(exported.body.data.format).toBe("csv");
+    expect(typeof exported.body.data.content).toBe("string");
+    expect(exported.body.data.content.includes("\"id\"")).toBe(true);
+
+    const invalid = await request(app)
+      .post("/v1/work-items/bulk")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        workItemIds: ids,
+        action: "priority"
+      });
+    expect(invalid.status).toBe(400);
+  });
+
   it("generates JML mover preview with entitlement diff", async () => {
     const { app } = createApp();
 

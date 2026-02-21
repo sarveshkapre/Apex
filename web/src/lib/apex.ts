@@ -37,6 +37,8 @@ import {
   SlaBreachesResponse,
   WorkflowSimulationResult,
   WorkItem,
+  WorkItemBulkAction,
+  WorkItemBulkResult,
   WorkflowDefinition
 } from "@/lib/types";
 import {
@@ -106,6 +108,32 @@ export const listObjectsByType = async (type: string): Promise<GraphObject[]> =>
 
 export const listWorkItems = async (): Promise<WorkItem[]> => {
   return safe(() => get<WorkItem[]>("/work-items"), mockWorkItems);
+};
+
+export const runWorkItemBulkAction = async (payload: {
+  workItemIds: string[];
+  action: WorkItemBulkAction;
+  assigneeId?: string;
+  assignmentGroup?: string;
+  priority?: "P0" | "P1" | "P2" | "P3" | "P4";
+  tag?: string;
+  comment?: string;
+  workflowStep?: "triage" | "start" | "wait" | "block" | "complete" | "cancel";
+}): Promise<WorkItemBulkResult> => {
+  const response = await fetch(`${API_BASE}/work-items/bulk`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-agent",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Bulk queue action failed");
+  }
+  const json = (await response.json()) as ApiResponse<WorkItemBulkResult>;
+  return json.data;
 };
 
 export const listApprovals = async (): Promise<Approval[]> => {

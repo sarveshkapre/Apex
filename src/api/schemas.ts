@@ -59,6 +59,50 @@ export const workItemUpdateSchema = z.object({
   tags: z.array(z.string()).optional()
 });
 
+export const workItemBulkActionSchema = z
+  .object({
+    workItemIds: z.array(z.string().min(1)).min(1),
+    action: z.enum(["assign", "priority", "tag", "comment", "workflow-step", "export"]),
+    assigneeId: z.string().optional(),
+    assignmentGroup: z.string().optional(),
+    priority: z.enum(["P0", "P1", "P2", "P3", "P4"]).optional(),
+    tag: z.string().optional(),
+    comment: z.string().optional(),
+    workflowStep: z.enum(["triage", "start", "wait", "block", "complete", "cancel"]).optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === "assign" && !value.assigneeId && !value.assignmentGroup) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "assigneeId or assignmentGroup is required for assign action"
+      });
+    }
+    if (value.action === "priority" && !value.priority) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "priority is required for priority action"
+      });
+    }
+    if (value.action === "tag" && !value.tag) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "tag is required for tag action"
+      });
+    }
+    if (value.action === "comment" && !value.comment) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "comment is required for comment action"
+      });
+    }
+    if (value.action === "workflow-step" && !value.workflowStep) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "workflowStep is required for workflow-step action"
+      });
+    }
+  });
+
 export const runWorkflowSchema = z.object({
   definitionId: z.string().min(1),
   tenantId: z.string().min(1),

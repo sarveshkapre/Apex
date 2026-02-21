@@ -78,6 +78,7 @@ import {
   workflowDefinitionCreateSchema,
   workflowDefinitionStateSchema,
   workflowSimulationSchema,
+  workItemBulkActionSchema,
   workItemCreateSchema,
   workItemUpdateSchema
 } from "./schemas";
@@ -199,6 +200,15 @@ const roleEntitlementCatalog: Record<string, { groups: string[]; apps: string[] 
 };
 
 const normalizeRoleKey = (role: string): string => role.trim().toLowerCase().replace(/\s+/g, "-");
+
+const workflowStepStatusMap = {
+  triage: "Triaged",
+  start: "In Progress",
+  wait: "Waiting",
+  block: "Blocked",
+  complete: "Completed",
+  cancel: "Canceled"
+} as const;
 
 export const createRoutes = (store: ApexStore): Router => {
   const router = Router();
@@ -1881,6 +1891,145 @@ export const createRoutes = (store: ApexStore): Router => {
     });
 
     res.json({ data: workItem });
+  });
+
+  router.post("/work-items/bulk", (req, res) => {
+    const actor = getActor(req.headers);
+    const parsed = workItemBulkActionSchema.parse(req.body);
+    const canRun = can(actor.role, "workflow:run");
+    const canExport = can(actor.role, "audit:export");
+    permission(parsed.action === "export" ? canRun || canExport : canRun);
+
+    const selectedIds = [...new Set(parsed.workItemIds)];
+    const matched = selectedIds
+      .map((id) => store.workItems.get(id))
+      .filter((item): item is WorkItem => Boolean(item));
+
+    if (matched.length === 0) {
+      res.status(404).json({ error: "No matching work items found" });
+      return;
+    }
+
+    if (parsed.action === "export") {
+      const header = [
+        "id",
+        "type",
+        "status",
+        "priority",
+        "title",
+        "assignment_group",
+        "assignee_id",
+        "requester_id",
+        "tags"
+      ];
+      const lines = matched.map((item) =>
+        [
+          escapeCsv(item.id),
+          escapeCsv(item.type),
+          escapeCsv(item.status),
+          escapeCsv(item.priority),
+          escapeCsv(item.title),
+          escapeCsv(item.assignmentGroup ?? ""),
+          escapeCsv(item.assigneeId ?? ""),
+          escapeCsv(item.requesterId),
+          escapeCsv(item.tags.join("|"))
+        ].join(",")
+      );
+      const content = [header.map((value) => escapeCsv(value)).join(","), ...lines].join("\n");
+
+      res.json({
+        data: {
+          action: "export",
+          selectedCount: selectedIds.length,
+          matchedCount: matched.length,
+          format: "csv",
+          fileName: `queue-export-${nowIso().slice(0, 10)}.csv`,
+          content
+        }
+      });
+      return;
+    }
+
+    const updatedIds: string[] = [];
+    for (const item of matched) {
+      const payload: Record<string, unknown> = {
+        bulkAction: parsed.action
+      };
+
+      if (parsed.action === "assign") {
+        if (parsed.assigneeId !== undefined) {
+          item.assigneeId = parsed.assigneeId;
+          payload.assigneeId = parsed.assigneeId;
+        }
+        if (parsed.assignmentGroup !== undefined) {
+          item.assignmentGroup = parsed.assignmentGroup;
+          payload.assignmentGroup = parsed.assignmentGroup;
+        }
+      } else if (parsed.action === "priority" && parsed.priority) {
+        item.priority = parsed.priority;
+        payload.priority = parsed.priority;
+      } else if (parsed.action === "tag" && parsed.tag) {
+        const tag = parsed.tag.trim();
+        if (tag.length > 0 && !item.tags.includes(tag)) {
+          item.tags.push(tag);
+        }
+        payload.tag = tag;
+      } else if (parsed.action === "comment" && parsed.comment) {
+        const comment = {
+          id: store.createId(),
+          authorId: actor.id,
+          body: parsed.comment,
+          mentions: [],
+          createdAt: nowIso()
+        };
+        item.comments.push(comment);
+        payload.commentId = comment.id;
+
+        store.pushTimeline({
+          tenantId: item.tenantId,
+          workspaceId: item.workspaceId,
+          entityType: "work-item",
+          entityId: item.id,
+          eventType: "comment.added",
+          actor: actor.id,
+          createdAt: nowIso(),
+          payload: comment
+        });
+      } else if (parsed.action === "workflow-step" && parsed.workflowStep) {
+        const status = workflowStepStatusMap[parsed.workflowStep as keyof typeof workflowStepStatusMap];
+        if (!status) {
+          res.status(400).json({ error: "Invalid workflow step" });
+          return;
+        }
+        item.status = status;
+        payload.workflowStep = parsed.workflowStep;
+        payload.status = status;
+      }
+
+      item.updatedAt = nowIso();
+      store.workItems.set(item.id, item);
+      updatedIds.push(item.id);
+
+      store.pushTimeline({
+        tenantId: item.tenantId,
+        workspaceId: item.workspaceId,
+        entityType: "work-item",
+        entityId: item.id,
+        eventType: "object.updated",
+        actor: actor.id,
+        createdAt: nowIso(),
+        payload
+      });
+    }
+
+    res.json({
+      data: {
+        action: parsed.action,
+        selectedCount: selectedIds.length,
+        updatedCount: updatedIds.length,
+        updatedIds
+      }
+    });
   });
 
   router.get("/exceptions", (req, res) => {
