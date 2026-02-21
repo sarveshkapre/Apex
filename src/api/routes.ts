@@ -14,6 +14,8 @@ import {
   FieldRestriction,
   GraphObject,
   GraphRelationship,
+  JmlMoverPlan,
+  JmlMoverRun,
   NotificationRule,
   PolicyDefinition,
   ReportDefinition,
@@ -57,6 +59,8 @@ import {
   objectUpdateSchema,
   policyExceptionActionSchema,
   policyCreateSchema,
+  jmlMoverPreviewSchema,
+  jmlMoverExecuteSchema,
   reportDefinitionCreateSchema,
   reportDefinitionUpdateSchema,
   reportRunCreateSchema,
@@ -170,6 +174,31 @@ const daysUntilDate = (date: Date): number => {
 };
 
 const escapeCsv = (value: unknown): string => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+const roleEntitlementCatalog: Record<string, { groups: string[]; apps: string[] }> = {
+  engineer: {
+    groups: ["eng-base", "repo-read", "deploy-read"],
+    apps: ["GitHub", "Slack", "Jira"]
+  },
+  "senior-engineer": {
+    groups: ["eng-base", "repo-write", "deploy-write"],
+    apps: ["GitHub", "Slack", "Jira", "Datadog"]
+  },
+  manager: {
+    groups: ["mgr-base", "repo-read", "budget-approver"],
+    apps: ["Slack", "Jira", "Workday"]
+  },
+  finance: {
+    groups: ["finance-base", "billing-read", "budget-approver"],
+    apps: ["NetSuite", "Slack", "Workday"]
+  },
+  "it-admin": {
+    groups: ["it-admin", "directory-admin", "device-admin"],
+    apps: ["Okta", "Jamf", "Slack"]
+  }
+};
+
+const normalizeRoleKey = (role: string): string => role.trim().toLowerCase().replace(/\s+/g, "-");
 
 export const createRoutes = (store: ApexStore): Router => {
   const router = Router();
@@ -730,6 +759,76 @@ export const createRoutes = (store: ApexStore): Router => {
     });
 
     return run;
+  };
+
+  const parseStringArrayField = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item)).filter((item) => item.length > 0);
+    }
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+    return [];
+  };
+
+  const buildJmlMoverPlan = (input: {
+    personId: string;
+    targetRole: string;
+    targetDepartment?: string;
+    targetLocation?: string;
+    requesterId: string;
+  }): JmlMoverPlan | null => {
+    const person = store.objects.get(input.personId);
+    if (!person || person.type !== "Person") {
+      return null;
+    }
+
+    const currentRole = String(person.fields.role_profile ?? person.fields.job_title ?? "engineer");
+    const currentRoleKey = normalizeRoleKey(currentRole);
+    const targetRoleKey = normalizeRoleKey(input.targetRole);
+
+    const currentEntitlements = roleEntitlementCatalog[currentRoleKey] ?? { groups: [], apps: [] };
+    const targetEntitlements = roleEntitlementCatalog[targetRoleKey] ?? { groups: [], apps: [] };
+
+    const currentGroups = parseStringArrayField(person.fields.current_groups);
+    const currentApps = parseStringArrayField(person.fields.current_apps);
+    const baselineGroups = currentGroups.length > 0 ? currentGroups : currentEntitlements.groups;
+    const baselineApps = currentApps.length > 0 ? currentApps : currentEntitlements.apps;
+
+    const addGroups = targetEntitlements.groups.filter((group) => !baselineGroups.includes(group));
+    const removeGroups = baselineGroups.filter((group) => !targetEntitlements.groups.includes(group));
+    const addApps = targetEntitlements.apps.filter((app) => !baselineApps.includes(app));
+    const removeApps = baselineApps.filter((app) => !targetEntitlements.apps.includes(app));
+
+    const privilegedChanges = [...addGroups, ...removeGroups].some((group) => group.includes("admin"));
+    const highChurn = addGroups.length + removeGroups.length + addApps.length + removeApps.length >= 6;
+    const riskLevel = privilegedChanges || highChurn ? "high" : addGroups.length + removeGroups.length > 2 ? "medium" : "low";
+
+    const approvalsRequired = approvalsForRequest(
+      [...store.approvalMatrixRules.values()],
+      "Change",
+      riskLevel,
+      undefined
+    );
+
+    return {
+      personId: person.id,
+      currentRole,
+      targetRole: input.targetRole,
+      currentDepartment: String(person.fields.department ?? ""),
+      targetDepartment: input.targetDepartment,
+      currentLocation: String(person.fields.location ?? ""),
+      targetLocation: input.targetLocation,
+      addGroups,
+      removeGroups,
+      addApps,
+      removeApps,
+      riskLevel,
+      approvalsRequired
+    };
   };
 
   const buildContractRenewalCandidates = (daysAhead: number) => {
@@ -2689,6 +2788,198 @@ export const createRoutes = (store: ApexStore): Router => {
       return;
     }
     res.json({ data: run });
+  });
+
+  router.get("/jml/mover/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const personId = req.query.personId ? String(req.query.personId) : undefined;
+    const data = [...store.jmlMoverRuns.values()]
+      .filter((run) => (personId ? run.personId === personId : true))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    res.json({ data });
+  });
+
+  router.post("/jml/mover/preview", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = jmlMoverPreviewSchema.parse(req.body);
+    const plan = buildJmlMoverPlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Person not found for mover plan" });
+      return;
+    }
+    const run: JmlMoverRun = {
+      id: store.createId(),
+      mode: "preview",
+      status: "planned",
+      personId: plan.personId,
+      requesterId: parsed.requesterId,
+      plan,
+      createdTaskIds: [],
+      createdApprovalIds: [],
+      createdAt: nowIso()
+    };
+    store.jmlMoverRuns.set(run.id, run);
+    res.status(201).json({ data: run });
+  });
+
+  router.post("/jml/mover/execute", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = jmlMoverExecuteSchema.parse(req.body);
+    const plan = buildJmlMoverPlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Person not found for mover execution" });
+      return;
+    }
+
+    for (const type of plan.approvalsRequired) {
+      const approverId = `${type}-approver`;
+      const sod = validateSod([...store.sodRules.values()], "Change", parsed.requesterId, approverId);
+      if (!sod.ok) {
+        res.status(409).json({ error: sod.reason ?? "Separation-of-duties validation failed" });
+        return;
+      }
+    }
+
+    const person = store.objects.get(plan.personId);
+    if (!person || person.type !== "Person") {
+      res.status(404).json({ error: "Person not found for mover execution" });
+      return;
+    }
+
+    const workItem: WorkItem = {
+      id: store.createId(),
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      type: "Change",
+      status: "Submitted",
+      priority: plan.riskLevel === "high" ? "P1" : plan.riskLevel === "medium" ? "P2" : "P3",
+      title: `JML mover change: ${String(person.fields.legal_name ?? person.id)}`,
+      description: parsed.reason,
+      requesterId: parsed.requesterId,
+      assignmentGroup: "Identity Operations",
+      linkedObjectIds: [person.id],
+      tags: ["jml", "mover", "entitlements"],
+      comments: [
+        {
+          id: store.createId(),
+          authorId: actor.id,
+          body: `Mover execution requested: role ${plan.currentRole} -> ${plan.targetRole}`,
+          mentions: [],
+          createdAt: nowIso()
+        }
+      ],
+      attachments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.workItems.set(workItem.id, workItem);
+
+    const createdApprovalIds = plan.approvalsRequired.map((type) => {
+      const approval = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        workItemId: workItem.id,
+        type,
+        approverId: `${type}-approver`,
+        decision: "pending" as const,
+        createdAt: nowIso()
+      };
+      store.approvals.set(approval.id, approval);
+      return approval.id;
+    });
+
+    const createdTaskIds: string[] = [];
+    const taskActions = [
+      ...plan.addGroups.map((value) => ({ kind: "add-group", value })),
+      ...plan.removeGroups.map((value) => ({ kind: "remove-group", value })),
+      ...plan.addApps.map((value) => ({ kind: "add-app", value })),
+      ...plan.removeApps.map((value) => ({ kind: "remove-app", value }))
+    ];
+    for (const action of taskActions) {
+      const task: WorkItem = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        type: "Task",
+        status: "Submitted",
+        priority: "P3",
+        title: `Mover ${action.kind}: ${action.value}`,
+        description: `Apply mover entitlement action ${action.kind} for ${action.value}.`,
+        requesterId: parsed.requesterId,
+        assignmentGroup: "Identity Operations",
+        linkedObjectIds: [person.id, workItem.id],
+        tags: ["jml", "mover", "task"],
+        comments: [],
+        attachments: [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.workItems.set(task.id, task);
+      createdTaskIds.push(task.id);
+    }
+
+    const currentGroups = parseStringArrayField(person.fields.current_groups);
+    const currentApps = parseStringArrayField(person.fields.current_apps);
+    const nextGroups = [...new Set([...currentGroups, ...plan.addGroups])].filter(
+      (group) => !plan.removeGroups.includes(group)
+    );
+    const nextApps = [...new Set([...currentApps, ...plan.addApps])].filter((app) => !plan.removeApps.includes(app));
+
+    person.fields = {
+      ...person.fields,
+      role_profile: plan.targetRole,
+      job_title: plan.targetRole,
+      department: plan.targetDepartment ?? person.fields.department,
+      location: plan.targetLocation ?? person.fields.location,
+      current_groups: nextGroups,
+      current_apps: nextApps
+    };
+    person.updatedAt = nowIso();
+    store.objects.set(person.id, person);
+
+    const run: JmlMoverRun = {
+      id: store.createId(),
+      mode: "live",
+      status: "executed",
+      personId: person.id,
+      requesterId: parsed.requesterId,
+      plan,
+      linkedWorkItemId: workItem.id,
+      createdTaskIds,
+      createdApprovalIds,
+      createdAt: nowIso()
+    };
+    store.jmlMoverRuns.set(run.id, run);
+
+    store.pushTimeline({
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      entityType: "workflow",
+      entityId: run.id,
+      eventType: "jml.mover.executed",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        personId: person.id,
+        workItemId: workItem.id,
+        riskLevel: plan.riskLevel,
+        approvals: createdApprovalIds.length,
+        tasks: createdTaskIds.length
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        run,
+        workItem,
+        approvalIds: createdApprovalIds,
+        taskIds: createdTaskIds
+      }
+    });
   });
 
   router.get("/playbooks", (_req, res) => {

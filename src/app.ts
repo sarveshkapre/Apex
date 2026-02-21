@@ -37,6 +37,34 @@ export const createApp = (): { app: express.Express; store: ApexStore } => {
     updatedAt: nowIso()
   });
 
+  const samplePersonId = store.createId();
+  store.objects.set(samplePersonId, {
+    id: samplePersonId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "Person",
+    fields: {
+      legal_name: "Jane Doe",
+      email: "jane@example.com",
+      role_profile: "engineer",
+      job_title: "Engineer",
+      department: "Engineering",
+      location: "San Francisco",
+      manager: "manager-approver",
+      current_groups: ["eng-base", "repo-read", "deploy-read"],
+      current_apps: ["GitHub", "Slack", "Jira"]
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.94,
+      completeness: 0.9,
+      consistency: 0.93,
+      coverage: 0.9
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
   const sampleRequestId = store.createId();
   store.workItems.set(sampleRequestId, {
     id: sampleRequestId,

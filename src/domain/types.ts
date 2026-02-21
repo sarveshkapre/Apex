@@ -111,6 +111,7 @@ export type TimelineEventType =
   | "saas.reclaim.run"
   | "contract.renewal.run"
   | "report.run"
+  | "jml.mover.executed"
   | "external-ticket.linked"
   | "connector.sync"
   | "config.published"
@@ -639,4 +640,33 @@ export interface ReportRun {
   content: string;
   ranBy: string;
   error?: string;
+}
+
+export interface JmlMoverPlan {
+  personId: string;
+  currentRole: string;
+  targetRole: string;
+  currentDepartment?: string;
+  targetDepartment?: string;
+  currentLocation?: string;
+  targetLocation?: string;
+  addGroups: string[];
+  removeGroups: string[];
+  addApps: string[];
+  removeApps: string[];
+  riskLevel: RiskLevel;
+  approvalsRequired: ApprovalType[];
+}
+
+export interface JmlMoverRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  personId: string;
+  requesterId: string;
+  plan: JmlMoverPlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdAt: string;
 }

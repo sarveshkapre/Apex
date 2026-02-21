@@ -12,6 +12,7 @@ import {
   ExternalTicketLink,
   GraphObject,
   GraphRelationship,
+  JmlMoverRun,
   NotificationRule,
   PolicyDefinition,
   PolicyException,
@@ -61,6 +62,7 @@ export class ApexStore {
   contractRenewalRuns = new Map<string, ContractRenewalRun>();
   reportDefinitions = new Map<string, ReportDefinition>();
   reportRuns = new Map<string, ReportRun>();
+  jmlMoverRuns = new Map<string, JmlMoverRun>();
 
   createId(): string {
     return uuidv4();

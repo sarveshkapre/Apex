@@ -40,6 +40,7 @@ This repository now ships a full-stack implementation baseline for Apex:
   - policy exceptions lifecycle (`/v1/admin/policies/exceptions`, `/v1/admin/policies/exceptions/:id/action`, `/v1/admin/policies/:id/exceptions`)
   - contract renewal governance (`/v1/contracts/renewals/overview`, `/v1/contracts/renewals/runs`)
   - report definitions and run artifacts (`/v1/reports/definitions`, `/v1/reports/runs`, `/v1/reports/runs/:id/export`)
+  - JML mover planning and execution (`/v1/jml/mover/preview`, `/v1/jml/mover/execute`, `/v1/jml/mover/runs`)
   - connector CRUD + run history (`/v1/admin/connectors`, `/v1/admin/connectors/:id/run`)
   - notification rules (`/v1/admin/notifications`)
   - config versioning (`/v1/admin/config-versions`, publish/rollback state transitions)
@@ -81,6 +82,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Reports evidence export panel with downloadable JSON package per work item
 - Admin catalog builder for item creation, workflow mapping, dynamic fields, and activation toggles
 - Policy exception lifecycle controls (waive/renew/resolve/reopen) in Policies & Compliance
+- Workflow surface includes JML Mover planner with entitlement diff preview and execute path
 
 ## Run
 
@@ -122,6 +124,7 @@ npm --prefix web run build
 - `GET/POST/PATCH /v1/saas/reclaim/policies`, `GET/POST /v1/saas/reclaim/runs`, `POST /v1/saas/reclaim/runs/:id/retry`
 - `GET /v1/contracts/renewals/overview`, `GET/POST /v1/contracts/renewals/runs`
 - `GET/POST/PATCH /v1/reports/definitions`, `POST /v1/reports/definitions/:id/run`, `GET /v1/reports/runs`, `GET /v1/reports/runs/:id/export`
+- `GET /v1/jml/mover/runs`, `POST /v1/jml/mover/preview`, `POST /v1/jml/mover/execute`
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
 - `GET /v1/workflows/definitions`

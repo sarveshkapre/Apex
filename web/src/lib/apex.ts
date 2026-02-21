@@ -19,6 +19,8 @@ import {
   FieldRestriction,
   GraphObject,
   IntegrationHealth,
+  JmlMoverExecutionResult,
+  JmlMoverRun,
   KnowledgeArticle,
   NotificationRule,
   PolicyDefinition,
@@ -232,6 +234,58 @@ export const runReportDefinition = async (
     throw new Error("Failed to run report definition");
   }
   const json = (await response.json()) as ApiResponse<ReportRun>;
+  return json.data;
+};
+
+export const listJmlMoverRuns = async (personId?: string): Promise<JmlMoverRun[]> => {
+  const query = personId ? `?personId=${encodeURIComponent(personId)}` : "";
+  return safe(() => get<JmlMoverRun[]>(`/jml/mover/runs${query}`), []);
+};
+
+export const previewJmlMover = async (payload: {
+  personId: string;
+  targetRole: string;
+  targetDepartment?: string;
+  targetLocation?: string;
+  requesterId: string;
+}): Promise<JmlMoverRun> => {
+  const response = await fetch(`${API_BASE}/jml/mover/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to generate mover preview");
+  }
+  const json = (await response.json()) as ApiResponse<JmlMoverRun>;
+  return json.data;
+};
+
+export const executeJmlMover = async (payload: {
+  personId: string;
+  targetRole: string;
+  targetDepartment?: string;
+  targetLocation?: string;
+  requesterId: string;
+  reason: string;
+}): Promise<JmlMoverExecutionResult> => {
+  const response = await fetch(`${API_BASE}/jml/mover/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to execute mover workflow");
+  }
+  const json = (await response.json()) as ApiResponse<JmlMoverExecutionResult>;
   return json.data;
 };
 

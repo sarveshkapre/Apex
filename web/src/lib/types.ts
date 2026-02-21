@@ -291,6 +291,42 @@ export interface ReportExportArtifact {
   content: string;
 }
 
+export interface JmlMoverPlan {
+  personId: string;
+  currentRole: string;
+  targetRole: string;
+  currentDepartment?: string;
+  targetDepartment?: string;
+  currentLocation?: string;
+  targetLocation?: string;
+  addGroups: string[];
+  removeGroups: string[];
+  addApps: string[];
+  removeApps: string[];
+  riskLevel: "low" | "medium" | "high";
+  approvalsRequired: string[];
+}
+
+export interface JmlMoverRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  personId: string;
+  requesterId: string;
+  plan: JmlMoverPlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdAt: string;
+}
+
+export interface JmlMoverExecutionResult {
+  run: JmlMoverRun;
+  workItem: WorkItem;
+  approvalIds: string[];
+  taskIds: string[];
+}
+
 export interface FieldRestriction {
   id: string;
   objectType: string;

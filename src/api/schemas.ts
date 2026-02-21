@@ -481,3 +481,20 @@ export const reportDefinitionUpdateSchema = z.object({
 export const reportRunCreateSchema = z.object({
   trigger: z.enum(["manual", "scheduled"]).default("manual")
 });
+
+export const jmlMoverPreviewSchema = z.object({
+  personId: z.string().min(1),
+  targetRole: z.string().min(1),
+  targetDepartment: z.string().optional(),
+  targetLocation: z.string().optional(),
+  requesterId: z.string().min(1)
+});
+
+export const jmlMoverExecuteSchema = z.object({
+  personId: z.string().min(1),
+  targetRole: z.string().min(1),
+  targetDepartment: z.string().optional(),
+  targetLocation: z.string().optional(),
+  requesterId: z.string().min(1),
+  reason: z.string().min(1)
+});

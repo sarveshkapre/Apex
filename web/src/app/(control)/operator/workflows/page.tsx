@@ -1,11 +1,16 @@
 import { AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
+import { MoverLab } from "@/components/operator/mover-lab";
 import { WorkflowStudio } from "@/components/operator/workflow-studio";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listWorkflowDefinitions } from "@/lib/apex";
+import { listJmlMoverRuns, listObjectsByType, listWorkflowDefinitions } from "@/lib/apex";
 
 export default async function WorkflowsPage() {
-  const workflows = await listWorkflowDefinitions();
+  const [workflows, people, moverRuns] = await Promise.all([
+    listWorkflowDefinitions(),
+    listObjectsByType("Person"),
+    listJmlMoverRuns()
+  ]);
 
   return (
     <div className="space-y-4">
@@ -15,6 +20,8 @@ export default async function WorkflowsPage() {
       />
 
       <WorkflowStudio initial={workflows} />
+
+      <MoverLab people={people} initialRuns={moverRuns} />
 
       <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
         <CardHeader>

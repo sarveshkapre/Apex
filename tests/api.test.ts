@@ -616,4 +616,57 @@ describe("Apex API", () => {
     expect(typeof exportArtifact.body.data.content).toBe("string");
     expect(exportArtifact.body.data.content.includes("asset_tag")).toBe(true);
   });
+
+  it("generates JML mover preview with entitlement diff", async () => {
+    const { app } = createApp();
+
+    const people = await request(app).get("/v1/objects").query({ type: "Person" });
+    expect(people.status).toBe(200);
+    const personId = people.body.data[0].id as string;
+
+    const preview = await request(app)
+      .post("/v1/jml/mover/preview")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        personId,
+        targetRole: "manager",
+        targetDepartment: "Product",
+        targetLocation: "New York",
+        requesterId: "person-1"
+      });
+
+    expect(preview.status).toBe(201);
+    expect(preview.body.data.plan.targetRole).toBe("manager");
+    expect(Array.isArray(preview.body.data.plan.addGroups)).toBe(true);
+  });
+
+  it("executes JML mover flow and creates change work item with approvals/tasks", async () => {
+    const { app } = createApp();
+
+    const people = await request(app).get("/v1/objects").query({ type: "Person" });
+    const personId = people.body.data[0].id as string;
+
+    const executed = await request(app)
+      .post("/v1/jml/mover/execute")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        personId,
+        targetRole: "manager",
+        targetDepartment: "Product",
+        targetLocation: "New York",
+        requesterId: "person-1",
+        reason: "Role change approved"
+      });
+
+    expect(executed.status).toBe(201);
+    expect(executed.body.data.workItem.type).toBe("Change");
+    expect(executed.body.data.approvalIds.length).toBeGreaterThan(0);
+    expect(executed.body.data.taskIds.length).toBeGreaterThan(0);
+
+    const runs = await request(app).get("/v1/jml/mover/runs").query({ personId });
+    expect(runs.status).toBe(200);
+    expect(runs.body.data.length).toBeGreaterThan(0);
+  });
 });
