@@ -11,7 +11,9 @@ import {
   ConnectorConfig,
   CustomObjectSchema,
   DashboardKpis,
+  EvidencePackage,
   ExternalTicketLink,
+  ExternalTicketComment,
   FieldRestriction,
   GraphObject,
   IntegrationHealth,
@@ -125,6 +127,64 @@ export const getDashboard = async (type: string): Promise<DashboardKpis> => {
 
 export const getCatalog = async (): Promise<CatalogItem[]> => {
   return safe(() => get<CatalogItem[]>("/catalog/items"), mockCatalog);
+};
+
+export const createCatalogItem = async (payload: {
+  name: string;
+  description: string;
+  category: string;
+  expectedDelivery: string;
+  audience: string[];
+  regions: string[];
+  riskLevel: "low" | "medium" | "high";
+  defaultWorkflowDefinitionId?: string;
+  formFields: Array<{
+    key: string;
+    label: string;
+    type: "string" | "number" | "date" | "enum" | "bool" | "text";
+    required: boolean;
+    options?: string[];
+  }>;
+}) => {
+  return fetch(`${API_BASE}/catalog/items`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      active: true,
+      ...payload
+    })
+  });
+};
+
+export const updateCatalogItem = async (
+  catalogItemId: string,
+  payload: Partial<{
+    name: string;
+    description: string;
+    category: string;
+    expectedDelivery: string;
+    audience: string[];
+    regions: string[];
+    riskLevel: "low" | "medium" | "high";
+    active: boolean;
+    defaultWorkflowDefinitionId?: string;
+  }>
+) => {
+  return fetch(`${API_BASE}/catalog/items/${catalogItemId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify(payload)
+  });
 };
 
 export const previewCatalogItem = async (
@@ -638,6 +698,22 @@ export const listExternalTicketLinks = async (): Promise<ExternalTicketLink[]> =
   return safe(() => get<ExternalTicketLink[]>("/overlay/external-ticket-links"), mockExternalLinks);
 };
 
+export const listExternalTicketComments = async (externalTicketLinkId: string): Promise<ExternalTicketComment[]> => {
+  return safe(() => get<ExternalTicketComment[]>(`/overlay/external-ticket-links/${externalTicketLinkId}/comments`), []);
+};
+
+export const addExternalTicketComment = async (externalTicketLinkId: string, body: string) => {
+  return fetch(`${API_BASE}/overlay/external-ticket-links/${externalTicketLinkId}/comments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-agent",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({ body })
+  });
+};
+
 export const linkExternalTicket = async (payload: {
   workItemId: string;
   provider: "ServiceNow" | "Jira" | "Other";
@@ -715,6 +791,21 @@ export const getAiInsights = async (): Promise<AiInsight[]> => {
       return json.data.insights;
     },
     mockAiInsights
+  );
+};
+
+export const getEvidencePackage = async (workItemId: string): Promise<EvidencePackage> => {
+  return safe(
+    () => get<EvidencePackage>(`/evidence/${workItemId}`),
+    {
+      id: "fallback-evidence",
+      workItemId,
+      generatedAt: new Date().toISOString(),
+      timeline: [],
+      approvals: [],
+      actionLogs: [],
+      affectedObjects: []
+    }
   );
 };
 

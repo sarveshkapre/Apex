@@ -1,15 +1,17 @@
 import { Download, FileSpreadsheet, Save } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
+import { EvidenceExport } from "@/components/operator/evidence-export";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getDashboard } from "@/lib/apex";
+import { getDashboard, listWorkItems } from "@/lib/apex";
 
 export default async function ReportsPage() {
-  const [exec, security, saas] = await Promise.all([
+  const [exec, security, saas, workItems] = await Promise.all([
     getDashboard("executive"),
     getDashboard("security"),
-    getDashboard("saas")
+    getDashboard("saas"),
+    listWorkItems()
   ]);
 
   return (
@@ -41,10 +43,12 @@ export default async function ReportsPage() {
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="rounded-xl"><Save className="mr-2 h-4 w-4" />Save report</Button>
             <Button variant="outline" className="rounded-xl"><FileSpreadsheet className="mr-2 h-4 w-4" />Schedule CSV</Button>
-            <Button variant="outline" className="rounded-xl"><Download className="mr-2 h-4 w-4" />Export evidence package</Button>
+            <Button variant="outline" className="rounded-xl"><Download className="mr-2 h-4 w-4" />Export filtered CSV</Button>
           </div>
         </CardContent>
       </Card>
+
+      <EvidenceExport workItems={workItems} />
     </div>
   );
 }

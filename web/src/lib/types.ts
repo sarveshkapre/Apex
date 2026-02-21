@@ -277,6 +277,14 @@ export interface ExternalTicketLink {
   syncStatus: "linked" | "syncing" | "failed";
 }
 
+export interface ExternalTicketComment {
+  id: string;
+  externalTicketLinkId: string;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface AiInsight {
   id: string;
   title: string;
@@ -295,6 +303,38 @@ export interface WorkflowSimulationResult {
     requiresApproval: boolean;
   }>;
   outcome: string;
+}
+
+export interface EvidencePackage {
+  id: string;
+  workItemId: string;
+  generatedAt: string;
+  timeline: Array<{
+    id: string;
+    eventType: string;
+    actor: string;
+    createdAt: string;
+    payload: Record<string, unknown>;
+  }>;
+  approvals: Array<{
+    id: string;
+    type: string;
+    approverId: string;
+    decision: string;
+    comment?: string;
+    createdAt: string;
+    decidedAt?: string;
+  }>;
+  actionLogs: Array<{
+    id: string;
+    stepId: string;
+    actionName: string;
+    riskLevel: string;
+    targetSystem: string;
+    status: string;
+    createdAt: string;
+  }>;
+  affectedObjects: GraphObject[];
 }
 
 export interface CloudTagNonCompliant {

@@ -1,24 +1,29 @@
 import { PageHeader } from "@/components/app/page-header";
 import { AdminStudio } from "@/components/operator/admin-studio";
+import { CatalogBuilder } from "@/components/operator/catalog-builder";
 import {
+  getCatalog,
   listApprovalMatrixRules,
   listConfigVersions,
   listCustomSchemas,
   listFieldRestrictions,
   listNotificationRules,
   listPolicies,
-  listSodRules
+  listSodRules,
+  listWorkflowDefinitions
 } from "@/lib/apex";
 
 export default async function AdminStudioPage() {
-  const [schemas, policies, notifications, versions, fieldRestrictions, sodRules, approvalMatrix] = await Promise.all([
+  const [schemas, policies, notifications, versions, fieldRestrictions, sodRules, approvalMatrix, catalog, workflows] = await Promise.all([
     listCustomSchemas(),
     listPolicies(),
     listNotificationRules(),
     listConfigVersions(),
     listFieldRestrictions(),
     listSodRules(),
-    listApprovalMatrixRules()
+    listApprovalMatrixRules(),
+    getCatalog(),
+    listWorkflowDefinitions()
   ]);
 
   return (
@@ -36,6 +41,7 @@ export default async function AdminStudioPage() {
         initialSodRules={sodRules}
         initialApprovalMatrix={approvalMatrix}
       />
+      <CatalogBuilder initialCatalog={catalog} workflows={workflows} />
     </div>
   );
 }

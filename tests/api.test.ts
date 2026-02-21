@@ -362,4 +362,13 @@ describe("Apex API", () => {
       .length;
     expect(afterLiveExceptions).toBeGreaterThan(beforeExceptions);
   });
+
+  it("returns 404 when evidence export target work item does not exist", async () => {
+    const { app } = createApp();
+    const response = await request(app)
+      .get("/v1/evidence/missing-work-item")
+      .set("x-actor-id", "aud-1")
+      .set("x-actor-role", "auditor");
+    expect(response.status).toBe(404);
+  });
 });

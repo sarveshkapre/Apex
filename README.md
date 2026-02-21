@@ -66,9 +66,12 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Command surface with AI request drafting, policy/workflow draft generation, and insights
 - Workflow Studio with draft/publish/rollback/simulate
 - Queue Center controls for approval decisions/delegation and exception retry/resolve/escalate
+- Queue Center external ticket comment sync for overlay-mode collaboration
 - Admin CSV import wizard and config publish/rollback actions
 - Portal catalog request dialog with dynamic form preview + policy-driven approval submission
 - Operator Cloud Tag Governance module with dry-run/live remediation controls
+- Reports evidence export panel with downloadable JSON package per work item
+- Admin catalog builder for item creation, workflow mapping, dynamic fields, and activation toggles
 
 ## Run
 
@@ -112,6 +115,7 @@ npm --prefix web run build
 - `GET /v1/workflows/definitions`
 - `POST /v1/workflows/runs`, `POST /v1/workflows/runs/:id/advance`
 - `GET /v1/evidence/:workItemId`
+- `GET /v1/overlay/external-ticket-links/:id/comments`, `POST /v1/overlay/external-ticket-links/:id/comments`
 - `POST /v1/ai/query`, `POST /v1/ai/plan-preview`
 - `GET/POST /v1/admin/rbac/field-restrictions`
 - `GET/POST /v1/admin/rbac/sod-rules`

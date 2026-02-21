@@ -1870,6 +1870,10 @@ export const createRoutes = (store: ApexStore): Router => {
   router.get("/evidence/:workItemId", (req, res) => {
     const actor = getActor(req.headers);
     permission(can(actor.role, "audit:export") || can(actor.role, "workflow:run"));
+    if (!store.workItems.has(req.params.workItemId)) {
+      res.status(404).json({ error: "Work item not found" });
+      return;
+    }
 
     const evidence = buildEvidencePackage(store, req.params.workItemId);
     res.json({ data: evidence });
