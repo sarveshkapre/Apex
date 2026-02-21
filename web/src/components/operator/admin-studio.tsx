@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ApprovalMatrixRule,
   ApprovalMatrixSimulationResult,
@@ -14,6 +15,7 @@ import {
   FieldRestriction,
   NotificationRule,
   PolicyDefinition,
+  SandboxRun,
   SodRule
 } from "@/lib/types";
 import {
@@ -25,6 +27,7 @@ import {
   createFieldRestriction,
   createNotificationRule,
   createPolicy,
+  createSandboxRun,
   createSodRule,
   listApprovalMatrixRules,
   listConfigVersions,
@@ -32,6 +35,7 @@ import {
   listFieldRestrictions,
   listNotificationRules,
   listPolicies,
+  listSandboxRuns,
   listSodRules,
   simulateApprovalMatrixRule,
   transitionConfigVersion
@@ -46,6 +50,7 @@ type Props = {
   initialFieldRestrictions: FieldRestriction[];
   initialSodRules: SodRule[];
   initialApprovalMatrix: ApprovalMatrixRule[];
+  initialSandboxRuns: SandboxRun[];
 };
 
 const parseCsv = (value: string): string[] =>
@@ -61,7 +66,8 @@ export function AdminStudio({
   initialVersions,
   initialFieldRestrictions,
   initialSodRules,
-  initialApprovalMatrix
+  initialApprovalMatrix,
+  initialSandboxRuns
 }: Props) {
   const [schemas, setSchemas] = React.useState(initialSchemas);
   const [policies, setPolicies] = React.useState(initialPolicies);
@@ -70,6 +76,7 @@ export function AdminStudio({
   const [fieldRestrictions, setFieldRestrictions] = React.useState(initialFieldRestrictions);
   const [sodRules, setSodRules] = React.useState(initialSodRules);
   const [approvalMatrix, setApprovalMatrix] = React.useState(initialApprovalMatrix);
+  const [sandboxRuns, setSandboxRuns] = React.useState(initialSandboxRuns);
 
   const [status, setStatus] = React.useState("");
   const [schemaName, setSchemaName] = React.useState("");
@@ -104,19 +111,24 @@ export function AdminStudio({
   const [chainMode, setChainMode] = React.useState<"all" | "any">("all");
   const [chainApprovals, setChainApprovals] = React.useState("manager:manager-approver,security:security-approver");
   const [chainReason, setChainReason] = React.useState("Manual approval chain required for sensitive change.");
+  const [sandboxKind, setSandboxKind] = React.useState<"policy" | "workflow">("policy");
+  const [sandboxTargetId, setSandboxTargetId] = React.useState("");
+  const [sandboxInputs, setSandboxInputs] = React.useState("{\n  \"requesterId\": \"person-1\"\n}");
+  const [sandboxResult, setSandboxResult] = React.useState<Record<string, unknown> | null>(null);
 
   const [authAction, setAuthAction] = React.useState("automation:high-risk");
   const [authResult, setAuthResult] = React.useState<string>("");
 
   const refresh = async () => {
-    const [s, p, n, v, f, sod, matrix] = await Promise.all([
+    const [s, p, n, v, f, sod, matrix, sandbox] = await Promise.all([
       listCustomSchemas(),
       listPolicies(),
       listNotificationRules(),
       listConfigVersions(),
       listFieldRestrictions(),
       listSodRules(),
-      listApprovalMatrixRules()
+      listApprovalMatrixRules(),
+      listSandboxRuns()
     ]);
     setSchemas(s);
     setPolicies(p);
@@ -125,6 +137,7 @@ export function AdminStudio({
     setFieldRestrictions(f);
     setSodRules(sod);
     setApprovalMatrix(matrix);
+    setSandboxRuns(sandbox);
   };
 
   const addSchema = async () => {
@@ -281,6 +294,41 @@ export function AdminStudio({
       setStatus(`Approval chain ${result.chainId.slice(0, 8)} created with ${result.approvals.length} step(s).`);
     } catch {
       setStatus("Failed to create approval chain.");
+    }
+  };
+
+  const runSandbox = async () => {
+    if (!sandboxTargetId.trim()) {
+      setStatus("Sandbox target id is required.");
+      return;
+    }
+
+    let parsedInputs: Record<string, unknown> = {};
+    if (sandboxInputs.trim()) {
+      try {
+        const raw = JSON.parse(sandboxInputs) as unknown;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          setStatus("Sandbox inputs must be a JSON object.");
+          return;
+        }
+        parsedInputs = raw as Record<string, unknown>;
+      } catch {
+        setStatus("Sandbox inputs must be valid JSON.");
+        return;
+      }
+    }
+
+    try {
+      const run = await createSandboxRun({
+        kind: sandboxKind,
+        targetId: sandboxTargetId.trim(),
+        inputs: parsedInputs
+      });
+      setSandboxResult(run.result);
+      setStatus(`Sandbox run completed: ${run.summary}`);
+      await refresh();
+    } catch {
+      setStatus("Sandbox run failed.");
     }
   };
 
@@ -486,6 +534,53 @@ export function AdminStudio({
           />
           <Input value={chainReason} onChange={(event) => setChainReason(event.target.value)} placeholder="Reason" />
           <Button onClick={addApprovalChain} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />Create approval chain</Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
+        <CardHeader>
+          <CardTitle className="text-base">Sandbox Lab (safe dry-run)</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 xl:grid-cols-2">
+          <div className="space-y-2">
+            <Select value={sandboxKind} onValueChange={(value) => setSandboxKind(value as "policy" | "workflow")}>
+              <SelectTrigger><SelectValue placeholder="Target kind" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="policy">Policy</SelectItem>
+                <SelectItem value="workflow">Workflow</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={sandboxTargetId}
+              onChange={(event) => setSandboxTargetId(event.target.value)}
+              placeholder={sandboxKind === "policy" ? "Policy id (e.g. pol-...)" : "Workflow definition id (e.g. wf-...)"}
+            />
+            <Textarea
+              value={sandboxInputs}
+              onChange={(event) => setSandboxInputs(event.target.value)}
+              placeholder="JSON inputs"
+              className="min-h-[120px] font-mono text-xs"
+            />
+            <Button variant="outline" className="rounded-xl" onClick={runSandbox}>Run dry-run sandbox</Button>
+            {sandboxResult ? (
+              <pre className="overflow-auto rounded-lg bg-zinc-950 p-3 text-xs text-zinc-100">
+                {JSON.stringify(sandboxResult, null, 2)}
+              </pre>
+            ) : null}
+          </div>
+          <div className="space-y-2 text-xs text-zinc-600">
+            {sandboxRuns.length === 0 ? (
+              <p className="rounded-lg border border-zinc-200 bg-white px-2.5 py-2">No sandbox runs yet.</p>
+            ) : (
+              sandboxRuns.slice(0, 8).map((run) => (
+                <div key={run.id} className="rounded-lg border border-zinc-200 bg-white px-2.5 py-2">
+                  <p className="font-medium text-zinc-900">{run.kind} • {run.targetName}</p>
+                  <p>{run.summary}</p>
+                  <p className="text-zinc-500">{run.id.slice(0, 8)} • {run.mode} • {run.createdAt}</p>
+                </div>
+              ))
+            )}
+          </div>
         </CardContent>
       </Card>
 

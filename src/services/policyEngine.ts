@@ -93,3 +93,24 @@ export const evaluatePolicy = (store: ApexStore, policy: PolicyDefinition, actor
     exceptions
   };
 };
+
+export const previewPolicyEvaluation = (store: ApexStore, policy: PolicyDefinition) => {
+  const inScope = [...store.objects.values()].filter((object) => object.type === policy.objectType);
+  const failedObjectIds: string[] = [];
+
+  for (const object of inScope) {
+    const fieldValue = object.fields[policy.expression.field];
+    const pass = compare(fieldValue, policy.expression.operator, policy.expression.value);
+    if (!pass) {
+      failedObjectIds.push(object.id);
+    }
+  }
+
+  return {
+    policyId: policy.id,
+    evaluatedCount: inScope.length,
+    wouldCreateExceptions: failedObjectIds.length,
+    wouldCreateTasks: policy.remediation.createTask ? failedObjectIds.length : 0,
+    sampledFailedObjectIds: failedObjectIds.slice(0, 25)
+  };
+};

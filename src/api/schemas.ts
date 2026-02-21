@@ -377,6 +377,12 @@ export const workflowSimulationSchema = z.object({
   inputs: z.record(z.string(), z.unknown()).default({})
 });
 
+export const sandboxRunCreateSchema = z.object({
+  kind: z.enum(["policy", "workflow"]),
+  targetId: z.string().min(1),
+  inputs: z.record(z.string(), z.unknown()).default({})
+});
+
 export const approvalDelegationSchema = z.object({
   approverId: z.string().min(1),
   comment: z.string().optional()

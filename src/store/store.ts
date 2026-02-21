@@ -22,6 +22,7 @@ import {
   PolicyException,
   ReportDefinition,
   ReportRun,
+  SandboxRun,
   SaasReclaimPolicy,
   SaasReclaimRun,
   SavedView,
@@ -66,6 +67,7 @@ export class ApexStore {
   contractRenewalRuns = new Map<string, ContractRenewalRun>();
   reportDefinitions = new Map<string, ReportDefinition>();
   reportRuns = new Map<string, ReportRun>();
+  sandboxRuns = new Map<string, SandboxRun>();
   jmlJoinerRuns = new Map<string, JmlJoinerRun>();
   jmlMoverRuns = new Map<string, JmlMoverRun>();
   jmlLeaverRuns = new Map<string, JmlLeaverRun>();

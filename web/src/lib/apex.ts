@@ -48,6 +48,7 @@ import {
   ReportDefinition,
   ReportExportArtifact,
   ReportRun,
+  SandboxRun,
   SaasReclaimPolicy,
   SaasReclaimRun,
   SavedView,
@@ -1382,6 +1383,35 @@ export const createNotificationRule = async (payload: { name: string; trigger: s
 
 export const listConfigVersions = async (): Promise<ConfigVersion[]> => {
   return safe(() => get<ConfigVersion[]>("/admin/config-versions"), mockConfigVersions);
+};
+
+export const listSandboxRuns = async (): Promise<SandboxRun[]> => {
+  return safe(() => get<SandboxRun[]>("/admin/sandbox/runs"), []);
+};
+
+export const createSandboxRun = async (payload: {
+  kind: "policy" | "workflow";
+  targetId: string;
+  inputs?: Record<string, unknown>;
+}): Promise<SandboxRun> => {
+  const response = await fetch(`${API_BASE}/admin/sandbox/runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      kind: payload.kind,
+      targetId: payload.targetId,
+      inputs: payload.inputs ?? {}
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Sandbox run failed");
+  }
+  const json = (await response.json()) as ApiResponse<SandboxRun>;
+  return json.data;
 };
 
 export const listFieldRestrictions = async (): Promise<FieldRestriction[]> => {

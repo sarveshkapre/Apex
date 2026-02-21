@@ -404,6 +404,22 @@ export interface ConfigVersion {
   reason: string;
 }
 
+export interface SandboxRun {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  kind: "policy" | "workflow";
+  targetId: string;
+  targetName: string;
+  mode: "dry-run";
+  status: "completed" | "failed";
+  summary: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown>;
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface ReportDefinition {
   id: string;
   tenantId: string;

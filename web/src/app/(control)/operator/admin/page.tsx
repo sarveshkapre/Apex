@@ -9,12 +9,13 @@ import {
   listFieldRestrictions,
   listNotificationRules,
   listPolicies,
+  listSandboxRuns,
   listSodRules,
   listWorkflowDefinitions
 } from "@/lib/apex";
 
 export default async function AdminStudioPage() {
-  const [schemas, policies, notifications, versions, fieldRestrictions, sodRules, approvalMatrix, catalog, workflows] = await Promise.all([
+  const [schemas, policies, notifications, versions, fieldRestrictions, sodRules, approvalMatrix, sandboxRuns, catalog, workflows] = await Promise.all([
     listCustomSchemas(),
     listPolicies(),
     listNotificationRules(),
@@ -22,6 +23,7 @@ export default async function AdminStudioPage() {
     listFieldRestrictions(),
     listSodRules(),
     listApprovalMatrixRules(),
+    listSandboxRuns(),
     getCatalog(),
     listWorkflowDefinitions()
   ]);
@@ -40,6 +42,7 @@ export default async function AdminStudioPage() {
         initialFieldRestrictions={fieldRestrictions}
         initialSodRules={sodRules}
         initialApprovalMatrix={approvalMatrix}
+        initialSandboxRuns={sandboxRuns}
       />
       <CatalogBuilder initialCatalog={catalog} workflows={workflows} />
     </div>

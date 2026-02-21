@@ -531,6 +531,82 @@ describe("Apex API", () => {
     expect(published.body.data.active).toBe(true);
   });
 
+  it("runs sandbox dry-runs for policies and workflows without mutating live policy state", async () => {
+    const { app } = createApp();
+
+    const policy = await request(app)
+      .post("/v1/admin/policies")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: "Sandbox Encryption Check",
+        description: "Dry-run policy validation",
+        objectType: "Device",
+        severity: "medium",
+        expression: {
+          field: "encryption_state",
+          operator: "equals",
+          value: "enabled"
+        },
+        remediation: {
+          notify: true,
+          createTask: true
+        },
+        active: true
+      });
+    expect(policy.status).toBe(201);
+
+    const exceptionsBefore = await request(app).get("/v1/admin/policies/exceptions");
+    expect(exceptionsBefore.status).toBe(200);
+    const workItemsBefore = await request(app).get("/v1/work-items");
+    expect(workItemsBefore.status).toBe(200);
+
+    const policySandbox = await request(app)
+      .post("/v1/admin/sandbox/runs")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        kind: "policy",
+        targetId: policy.body.data.id,
+        inputs: { trigger: "pre-publish" }
+      });
+    expect(policySandbox.status).toBe(201);
+    expect(policySandbox.body.data.kind).toBe("policy");
+    expect(policySandbox.body.data.mode).toBe("dry-run");
+    expect(typeof policySandbox.body.data.result.wouldCreateExceptions).toBe("number");
+
+    const exceptionsAfter = await request(app).get("/v1/admin/policies/exceptions");
+    expect(exceptionsAfter.status).toBe(200);
+    expect(exceptionsAfter.body.data.length).toBe(exceptionsBefore.body.data.length);
+    const workItemsAfter = await request(app).get("/v1/work-items");
+    expect(workItemsAfter.status).toBe(200);
+    expect(workItemsAfter.body.data.length).toBe(workItemsBefore.body.data.length);
+
+    const workflowSandbox = await request(app)
+      .post("/v1/admin/sandbox/runs")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        kind: "workflow",
+        targetId: "wf-device-return-v1",
+        inputs: { requesterId: "person-1" }
+      });
+    expect(workflowSandbox.status).toBe(201);
+    expect(workflowSandbox.body.data.kind).toBe("workflow");
+    expect(workflowSandbox.body.data.result.outcome).toBe("dry-run-complete");
+
+    const runs = await request(app)
+      .get("/v1/admin/sandbox/runs")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin");
+    expect(runs.status).toBe(200);
+    expect(runs.body.data.length).toBeGreaterThanOrEqual(2);
+    expect(runs.body.data.some((item: { kind: string }) => item.kind === "policy")).toBe(true);
+    expect(runs.body.data.some((item: { kind: string }) => item.kind === "workflow")).toBe(true);
+  });
+
   it("supports exception action lifecycle", async () => {
     const { app } = createApp();
 

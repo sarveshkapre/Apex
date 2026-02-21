@@ -28,6 +28,7 @@ import {
   PolicyDefinition,
   ReportDefinition,
   ReportRun,
+  SandboxRun,
   SaasReclaimPolicy,
   SaasReclaimRun,
   SavedView,
@@ -101,6 +102,7 @@ import {
   saasReclaimPolicyUpdateSchema,
   saasReclaimRunCreateSchema,
   saasReclaimRunRetrySchema,
+  sandboxRunCreateSchema,
   sodRuleCreateSchema,
   workflowDefinitionCreateSchema,
   workflowDefinitionStateSchema,
@@ -113,7 +115,7 @@ import { findCandidates, ingestSignal } from "../services/reconciliation";
 import { computeQualityDashboard } from "../services/quality";
 import { buildEvidencePackage } from "../services/evidence";
 import { WorkflowEngine } from "../services/workflowEngine";
-import { evaluatePolicy } from "../services/policyEngine";
+import { evaluatePolicy, previewPolicyEvaluation } from "../services/policyEngine";
 import { computeSlaBreaches } from "../services/sla";
 import { approvalsForRequest, canWriteField, maskObjectForActor, matchApprovalMatrixRules, validateSod } from "../services/governance";
 
@@ -172,6 +174,16 @@ const missingTagsForResource = (object: GraphObject, requiredTags: string[]): st
     return value === undefined || value === "";
   });
 };
+
+const buildWorkflowSimulationPlan = (definition: { steps: Array<{ id: string; name: string; type: string; riskLevel: "low" | "medium" | "high" }> }) =>
+  definition.steps.map((step, index) => ({
+    order: index + 1,
+    stepId: step.id,
+    name: step.name,
+    type: step.type,
+    riskLevel: step.riskLevel,
+    requiresApproval: step.type === "approval" || step.riskLevel === "high"
+  }));
 
 const getInactiveDays = (lastActiveRaw: unknown): number => {
   if (typeof lastActiveRaw !== "string") {
@@ -3977,6 +3989,100 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data: result });
   });
 
+  router.get("/admin/sandbox/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit") || can(actor.role, "workflow:run"));
+    const kind = req.query.kind ? String(req.query.kind) : undefined;
+    const data = [...store.sandboxRuns.values()]
+      .filter((run) => (kind ? run.kind === kind : true))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    res.json({ data });
+  });
+
+  router.post("/admin/sandbox/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = sandboxRunCreateSchema.parse(req.body);
+
+    if (parsed.kind === "policy") {
+      const policy = store.policies.get(parsed.targetId);
+      if (!policy) {
+        res.status(404).json({ error: "Policy not found" });
+        return;
+      }
+
+      const preview = previewPolicyEvaluation(store, policy);
+      const run: SandboxRun = {
+        id: store.createId(),
+        tenantId: policy.tenantId,
+        workspaceId: policy.workspaceId,
+        kind: "policy",
+        targetId: policy.id,
+        targetName: policy.name,
+        mode: "dry-run",
+        status: "completed",
+        summary: `${preview.wouldCreateExceptions} exception(s) would be created from ${preview.evaluatedCount} object(s).`,
+        input: parsed.inputs,
+        result: preview,
+        createdBy: actor.id,
+        createdAt: nowIso()
+      };
+      store.sandboxRuns.set(run.id, run);
+      store.pushTimeline({
+        tenantId: policy.tenantId,
+        workspaceId: policy.workspaceId,
+        entityType: "policy",
+        entityId: policy.id,
+        eventType: "sandbox.run",
+        actor: actor.id,
+        createdAt: nowIso(),
+        payload: { kind: run.kind, mode: run.mode, summary: run.summary, input: parsed.inputs }
+      });
+      res.status(201).json({ data: run });
+      return;
+    }
+
+    const definition = store.workflowDefinitions.get(parsed.targetId);
+    if (!definition) {
+      res.status(404).json({ error: "Workflow definition not found" });
+      return;
+    }
+    const plan = buildWorkflowSimulationPlan(definition);
+    const highRiskSteps = plan.filter((item) => item.riskLevel === "high").length;
+    const run: SandboxRun = {
+      id: store.createId(),
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      kind: "workflow",
+      targetId: definition.id,
+      targetName: definition.name,
+      mode: "dry-run",
+      status: "completed",
+      summary: `${plan.length} step(s) simulated (${highRiskSteps} high-risk).`,
+      input: parsed.inputs,
+      result: {
+        workflowDefinitionId: definition.id,
+        inputs: parsed.inputs,
+        plan,
+        outcome: "dry-run-complete"
+      },
+      createdBy: actor.id,
+      createdAt: nowIso()
+    };
+    store.sandboxRuns.set(run.id, run);
+    store.pushTimeline({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      entityType: "workflow",
+      entityId: definition.id,
+      eventType: "sandbox.run",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { kind: run.kind, mode: run.mode, summary: run.summary, input: parsed.inputs }
+    });
+    res.status(201).json({ data: run });
+  });
+
   router.get("/admin/policies/:id/exceptions", (req, res) => {
     const data = [...store.policyExceptions.values()].filter((item) => item.policyId === req.params.id);
     res.json({ data });
@@ -4644,14 +4750,7 @@ export const createRoutes = (store: ApexStore): Router => {
       res.status(404).json({ error: "Workflow definition not found" });
       return;
     }
-    const plan = definition.steps.map((step, index) => ({
-      order: index + 1,
-      stepId: step.id,
-      name: step.name,
-      type: step.type,
-      riskLevel: step.riskLevel,
-      requiresApproval: step.type === "approval" || step.riskLevel === "high"
-    }));
+    const plan = buildWorkflowSimulationPlan(definition);
     store.pushTimeline({
       tenantId: "tenant-demo",
       workspaceId: "workspace-demo",

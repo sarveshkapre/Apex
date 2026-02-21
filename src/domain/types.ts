@@ -120,7 +120,8 @@ export type TimelineEventType =
   | "external-ticket.linked"
   | "connector.sync"
   | "config.published"
-  | "manual.override";
+  | "manual.override"
+  | "sandbox.run";
 
 export interface TimelineEvent {
   id: string;
@@ -477,6 +478,22 @@ export interface ConfigVersion {
   changedBy: string;
   reason: string;
   payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface SandboxRun {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  kind: "policy" | "workflow";
+  targetId: string;
+  targetName: string;
+  mode: "dry-run";
+  status: "completed" | "failed";
+  summary: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown>;
+  createdBy: string;
   createdAt: string;
 }
 
