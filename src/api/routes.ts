@@ -58,6 +58,7 @@ import {
   notificationRuleCreateSchema,
   objectMergeExecuteSchema,
   objectMergePreviewSchema,
+  objectManualOverrideSchema,
   objectCreateSchema,
   objectUpdateSchema,
   policyExceptionActionSchema,
@@ -1210,6 +1211,69 @@ export const createRoutes = (store: ApexStore): Router => {
       actor: actor.id,
       createdAt: nowIso(),
       payload: { before, after: object.fields }
+    });
+
+    res.json({ data: object });
+  });
+
+  router.post("/objects/:id/manual-override", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:update"));
+
+    const parsed = objectManualOverrideSchema.parse(req.body);
+    const object = store.objects.get(req.params.id);
+    if (!object) {
+      res.status(404).json({ error: "Object not found" });
+      return;
+    }
+
+    const restrictions = [...store.fieldRestrictions.values()];
+    if (!canWriteField(object.type, parsed.field, actor, restrictions)) {
+      res.status(403).json({ error: `Field '${parsed.field}' is restricted for role '${actor.role}'` });
+      return;
+    }
+
+    if (parsed.overrideUntil) {
+      const overrideUntilMs = new Date(parsed.overrideUntil).getTime();
+      if (Number.isNaN(overrideUntilMs) || overrideUntilMs <= Date.now()) {
+        res.status(400).json({ error: "overrideUntil must be a future ISO datetime" });
+        return;
+      }
+    }
+
+    const previous = object.fields[parsed.field];
+    object.fields[parsed.field] = parsed.value;
+    object.updatedAt = nowIso();
+    object.provenance[parsed.field] = [
+      ...(object.provenance[parsed.field] ?? []),
+      {
+        field: parsed.field,
+        sourceId: "manual-override",
+        signalId: store.createId(),
+        observedAt: nowIso(),
+        confidence: 1,
+        overriddenBy: actor.id,
+        overrideReason: parsed.reason,
+        overrideUntil: parsed.overrideUntil
+      }
+    ];
+    store.objects.set(object.id, object);
+
+    store.pushTimeline({
+      tenantId: object.tenantId,
+      workspaceId: object.workspaceId,
+      entityType: "object",
+      entityId: object.id,
+      eventType: "manual.override",
+      actor: actor.id,
+      createdAt: nowIso(),
+      reason: parsed.reason,
+      payload: {
+        field: parsed.field,
+        previous,
+        next: parsed.value,
+        overrideUntil: parsed.overrideUntil
+      }
     });
 
     res.json({ data: object });

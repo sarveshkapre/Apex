@@ -8,10 +8,22 @@ export type WorkItemStatus =
   | "Completed"
   | "Canceled";
 
+export interface CanonicalFieldProvenance {
+  field: string;
+  sourceId: string;
+  signalId: string;
+  observedAt: string;
+  confidence: number;
+  overriddenBy?: string;
+  overrideReason?: string;
+  overrideUntil?: string;
+}
+
 export interface GraphObject {
   id: string;
   type: string;
   fields: Record<string, unknown>;
+  provenance?: Record<string, CanonicalFieldProvenance[]>;
   quality: {
     freshness: number;
     completeness: number;

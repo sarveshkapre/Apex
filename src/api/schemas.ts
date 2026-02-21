@@ -17,6 +17,13 @@ export const objectUpdateSchema = z.object({
   fields: z.record(z.string(), z.unknown())
 });
 
+export const objectManualOverrideSchema = z.object({
+  field: z.string().min(1),
+  value: z.unknown(),
+  reason: z.string().min(1),
+  overrideUntil: z.string().datetime().optional()
+});
+
 export const objectMergePreviewSchema = z.object({
   targetObjectId: z.string().min(1),
   sourceObjectId: z.string().min(1)

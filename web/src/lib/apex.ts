@@ -109,6 +109,34 @@ export const listObjectsByType = async (type: string): Promise<GraphObject[]> =>
   );
 };
 
+export const applyObjectManualOverride = async (payload: {
+  objectId: string;
+  field: string;
+  value: unknown;
+  reason: string;
+  overrideUntil?: string;
+}): Promise<GraphObject> => {
+  const response = await fetch(`${API_BASE}/objects/${payload.objectId}/manual-override`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-security",
+      "x-actor-role": "security-analyst"
+    },
+    body: JSON.stringify({
+      field: payload.field,
+      value: payload.value,
+      reason: payload.reason,
+      overrideUntil: payload.overrideUntil
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to apply manual override");
+  }
+  const json = (await response.json()) as ApiResponse<GraphObject>;
+  return json.data;
+};
+
 export const listObjectMergeRuns = async (objectId?: string): Promise<ObjectMergeRun[]> => {
   const query = objectId ? `?objectId=${encodeURIComponent(objectId)}` : "";
   return safe(() => get<ObjectMergeRun[]>(`/object-merges/runs${query}`), []);

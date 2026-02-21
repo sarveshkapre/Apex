@@ -374,6 +374,109 @@ describe("Apex API", () => {
     expect(updateDenied.status).toBe(403);
   });
 
+  it("applies manual field override with provenance and timeline evidence", async () => {
+    const { app } = createApp();
+
+    const created = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Device",
+        fields: {
+          serial_number: "SN-OVR-001",
+          encryption_state: "enabled"
+        }
+      });
+    expect(created.status).toBe(201);
+    const objectId = created.body.data.id as string;
+
+    const override = await request(app)
+      .post(`/v1/objects/${objectId}/manual-override`)
+      .set("x-actor-id", "sec-1")
+      .set("x-actor-role", "security-analyst")
+      .send({
+        field: "encryption_state",
+        value: "disabled",
+        reason: "Investigative exception for forensics",
+        overrideUntil: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
+      });
+    expect(override.status).toBe(200);
+    expect(override.body.data.fields.encryption_state).toBe("disabled");
+
+    const provenance = override.body.data.provenance.encryption_state as Array<{
+      overriddenBy?: string;
+      overrideReason?: string;
+    }>;
+    expect(Array.isArray(provenance)).toBe(true);
+    expect(provenance[provenance.length - 1].overriddenBy).toBe("sec-1");
+    expect(provenance[provenance.length - 1].overrideReason).toBe("Investigative exception for forensics");
+
+    const timeline = await request(app).get(`/v1/timeline/${objectId}`);
+    expect(timeline.status).toBe(200);
+    expect(
+      timeline.body.data.some((event: { eventType: string }) => event.eventType === "manual.override")
+    ).toBe(true);
+  });
+
+  it("rejects invalid manual override expiry and respects field write restrictions", async () => {
+    const { app } = createApp();
+
+    const created = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Person",
+        fields: {
+          legal_name: "Override Target",
+          compensation: 100000
+        }
+      });
+    expect(created.status).toBe(201);
+    const objectId = created.body.data.id as string;
+
+    const restriction = await request(app)
+      .post("/v1/admin/rbac/field-restrictions")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        objectType: "Person",
+        field: "compensation",
+        readRoles: ["finance", "it-admin"],
+        writeRoles: ["finance", "it-admin"],
+        maskStyle: "redacted"
+      });
+    expect(restriction.status).toBe(201);
+
+    const invalidUntil = await request(app)
+      .post(`/v1/objects/${objectId}/manual-override`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        field: "legal_name",
+        value: "Override Applied",
+        reason: "Testing expiry validation",
+        overrideUntil: new Date(Date.now() - 60 * 1000).toISOString()
+      });
+    expect(invalidUntil.status).toBe(400);
+
+    const denied = await request(app)
+      .post(`/v1/objects/${objectId}/manual-override`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        field: "compensation",
+        value: 150000,
+        reason: "Attempt restricted override"
+      });
+    expect(denied.status).toBe(403);
+  });
+
   it("updates catalog item without resetting defaulted fields", async () => {
     const { app } = createApp();
 

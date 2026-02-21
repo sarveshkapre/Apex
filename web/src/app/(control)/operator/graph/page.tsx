@@ -2,6 +2,7 @@ import { GitMerge, Link2, Search } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { ObjectMergeLab } from "@/components/operator/object-merge-lab";
+import { ProvenanceOverrideLab } from "@/components/operator/provenance-override-lab";
 import { ViewManager } from "@/components/operator/view-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,6 +31,7 @@ export default async function GraphPage() {
       <ViewManager initial={views} />
 
       <ObjectMergeLab objects={objects} initialRuns={mergeRuns} />
+      <ProvenanceOverrideLab initialObjects={objects} />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {objects.map((object) => (
