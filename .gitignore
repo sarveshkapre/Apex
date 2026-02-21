@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.log
+tests/**/*.js
+web/.next/
+web/node_modules/
+web/.git-create-next-backup/
