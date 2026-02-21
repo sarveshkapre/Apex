@@ -99,12 +99,18 @@ npm --prefix web run build
 - `GET /v1/timeline/:entityId`
 - `POST /v1/signals/preview`, `POST /v1/signals/ingest`
 - `GET /v1/quality`
+- `GET /v1/catalog/items`, `POST /v1/catalog/items`, `PATCH /v1/catalog/items/:id`
+- `POST /v1/catalog/items/:id/preview`, `POST /v1/catalog/submit`
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
 - `GET /v1/workflows/definitions`
 - `POST /v1/workflows/runs`, `POST /v1/workflows/runs/:id/advance`
 - `GET /v1/evidence/:workItemId`
 - `POST /v1/ai/query`, `POST /v1/ai/plan-preview`
+- `GET/POST /v1/admin/rbac/field-restrictions`
+- `GET/POST /v1/admin/rbac/sod-rules`
+- `GET/POST /v1/admin/rbac/approval-matrix`
+- `POST /v1/admin/rbac/authorize`
 
 ## Actor/role simulation
 

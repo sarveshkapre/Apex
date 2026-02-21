@@ -250,3 +250,130 @@ export const exceptionActionSchema = z.object({
   action: z.enum(["retry", "resolve", "escalate"]),
   reason: z.string().min(1)
 });
+
+export const fieldRestrictionCreateSchema = z.object({
+  objectType: z.enum(coreObjectTypes),
+  field: z.string().min(1),
+  readRoles: z
+    .array(
+      z.enum([
+        "end-user",
+        "it-agent",
+        "asset-manager",
+        "it-admin",
+        "security-analyst",
+        "finance",
+        "app-owner",
+        "auditor"
+      ])
+    )
+    .min(1),
+  writeRoles: z
+    .array(
+      z.enum([
+        "end-user",
+        "it-agent",
+        "asset-manager",
+        "it-admin",
+        "security-analyst",
+        "finance",
+        "app-owner",
+        "auditor"
+      ])
+    )
+    .min(1),
+  maskStyle: z.enum(["hidden", "redacted"]).optional()
+});
+
+export const sodRuleCreateSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  requestTypes: z.array(z.enum(workItemTypes)).min(1),
+  enabled: z.boolean().default(true)
+});
+
+export const approvalMatrixRuleCreateSchema = z.object({
+  name: z.string().min(1),
+  requestType: z.enum(workItemTypes),
+  riskLevel: z.enum(["low", "medium", "high"]),
+  costThreshold: z.number().nonnegative().optional(),
+  approverTypes: z.array(z.enum(["manager", "app-owner", "security", "finance", "it", "custom"])).min(1),
+  enabled: z.boolean().default(true)
+});
+
+const catalogFormFieldSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  type: z.enum(["string", "number", "date", "enum", "bool", "text"]),
+  required: z.boolean().default(false),
+  options: z.array(z.string()).optional(),
+  requiredIf: z
+    .object({
+      key: z.string().min(1),
+      equals: z.union([z.string(), z.number(), z.boolean()])
+    })
+    .optional(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional()
+});
+
+const catalogFormFieldUpdateSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  type: z.enum(["string", "number", "date", "enum", "bool", "text"]),
+  required: z.boolean().optional(),
+  options: z.array(z.string()).optional(),
+  requiredIf: z
+    .object({
+      key: z.string().min(1),
+      equals: z.union([z.string(), z.number(), z.boolean()])
+    })
+    .optional(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional()
+});
+
+export const catalogItemCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  category: z.string().min(1),
+  audience: z.array(z.string()).default([]),
+  regions: z.array(z.string()).default([]),
+  expectedDelivery: z.string().min(1),
+  formFields: z.array(catalogFormFieldSchema).default([]),
+  defaultWorkflowDefinitionId: z.string().optional(),
+  riskLevel: z.enum(["low", "medium", "high"]).default("medium"),
+  active: z.boolean().default(true)
+});
+
+export const catalogItemUpdateSchema = z.object({
+  tenantId: z.string().min(1).optional(),
+  workspaceId: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
+  audience: z.array(z.string()).optional(),
+  regions: z.array(z.string()).optional(),
+  expectedDelivery: z.string().min(1).optional(),
+  formFields: z.array(catalogFormFieldUpdateSchema).optional(),
+  defaultWorkflowDefinitionId: z.string().optional(),
+  riskLevel: z.enum(["low", "medium", "high"]).optional(),
+  active: z.boolean().optional()
+});
+
+export const catalogPreviewSchema = z.object({
+  fieldValues: z.record(z.string(), z.unknown()).default({})
+});
+
+export const catalogSubmitSchema = z.object({
+  catalogItemId: z.string().min(1),
+  requesterId: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  estimatedCost: z.number().nonnegative().optional(),
+  fieldValues: z.record(z.string(), z.unknown()).default({})
+});
+
+export const externalTicketCommentSchema = z.object({
+  body: z.string().min(1)
+});

@@ -202,4 +202,114 @@ describe("Apex API", () => {
     expect(resolved.status).toBe(200);
     expect(resolved.body.data.status).toBe("Completed");
   });
+
+  it("enforces field-level masking and write restrictions", async () => {
+    const { app } = createApp();
+
+    const restriction = await request(app)
+      .post("/v1/admin/rbac/field-restrictions")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        objectType: "Person",
+        field: "compensation",
+        readRoles: ["finance", "it-admin"],
+        writeRoles: ["finance", "it-admin"],
+        maskStyle: "redacted"
+      });
+    expect(restriction.status).toBe(201);
+
+    const created = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Person",
+        fields: {
+          legal_name: "Sensitive User",
+          email: "sensitive@example.com",
+          compensation: 200000
+        }
+      });
+    expect(created.status).toBe(201);
+
+    const personId = created.body.data.id as string;
+    const masked = await request(app)
+      .get(`/v1/objects/${personId}`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent");
+    expect(masked.status).toBe(200);
+    expect(masked.body.data.fields.compensation).toBe("[REDACTED]");
+
+    const updateDenied = await request(app)
+      .patch(`/v1/objects/${personId}`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ fields: { compensation: 250000 } });
+    expect(updateDenied.status).toBe(403);
+  });
+
+  it("updates catalog item without resetting defaulted fields", async () => {
+    const { app } = createApp();
+
+    const before = await request(app).get("/v1/catalog/items");
+    expect(before.status).toBe(200);
+    const existing = before.body.data.find((item: { id: string }) => item.id === "cat-laptop");
+    expect(existing).toBeTruthy();
+
+    const patched = await request(app)
+      .patch("/v1/catalog/items/cat-laptop")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ description: "Updated laptop request description" });
+    expect(patched.status).toBe(200);
+    expect(patched.body.data.description).toBe("Updated laptop request description");
+    expect(patched.body.data.audience.length).toBeGreaterThan(0);
+    expect(patched.body.data.regions.length).toBeGreaterThan(0);
+    expect(patched.body.data.formFields.length).toBeGreaterThan(0);
+  });
+
+  it("rejects catalog submit on SoD conflicts without creating work items", async () => {
+    const { app } = createApp();
+
+    const before = await request(app).get("/v1/work-items");
+    expect(before.status).toBe(200);
+    const beforeCount = before.body.data.length as number;
+
+    const submitted = await request(app)
+      .post("/v1/catalog/submit")
+      .set("x-actor-id", "requester-1")
+      .set("x-actor-role", "end-user")
+      .send({
+        catalogItemId: "cat-laptop",
+        requesterId: "manager-approver",
+        title: "Need standard laptop"
+      });
+    expect(submitted.status).toBe(409);
+
+    const after = await request(app).get("/v1/work-items");
+    expect(after.status).toBe(200);
+    expect(after.body.data.length).toBe(beforeCount);
+  });
+
+  it("creates approval chain from catalog risk matrix", async () => {
+    const { app } = createApp();
+
+    const submitted = await request(app)
+      .post("/v1/catalog/submit")
+      .set("x-actor-id", "requester-2")
+      .set("x-actor-role", "end-user")
+      .send({
+        catalogItemId: "cat-admin",
+        requesterId: "person-1",
+        title: "Need temporary admin privileges"
+      });
+
+    expect(submitted.status).toBe(201);
+    const approvalTypes = submitted.body.data.approvals.map((item: { type: string }) => item.type);
+    expect(approvalTypes).toContain("manager");
+    expect(approvalTypes).toContain("security");
+  });
 });

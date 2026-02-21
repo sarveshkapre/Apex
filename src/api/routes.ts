@@ -2,16 +2,21 @@ import { ErrorRequestHandler, Router } from "express";
 import { ZodError } from "zod";
 import {
   ApiActor,
+  ApprovalMatrixRule,
+  CatalogItemDefinition,
   ConfigVersion,
   ConnectorConfig,
   ConnectorRun,
   CustomObjectSchema,
+  ExternalTicketComment,
   ExternalTicketLink,
+  FieldRestriction,
   GraphObject,
   GraphRelationship,
   NotificationRule,
   PolicyDefinition,
   SavedView,
+  SodRule,
   SourceSignal,
   WorkItem,
   UserRole
@@ -21,9 +26,14 @@ import { nowIso } from "../utils/time";
 import { can } from "../services/rbac";
 import {
   approvalDecisionSchema,
+  approvalMatrixRuleCreateSchema,
   aiPromptSchema,
   attachmentCreateSchema,
   approvalDelegationSchema,
+  catalogItemCreateSchema,
+  catalogItemUpdateSchema,
+  catalogPreviewSchema,
+  catalogSubmitSchema,
   commentCreateSchema,
   configVersionCreateSchema,
   configVersionPublishSchema,
@@ -32,7 +42,9 @@ import {
   csvPreviewSchema,
   customSchemaCreateSchema,
   exceptionActionSchema,
+  externalTicketCommentSchema,
   externalTicketLinkCreateSchema,
+  fieldRestrictionCreateSchema,
   notificationRuleCreateSchema,
   objectCreateSchema,
   objectUpdateSchema,
@@ -41,6 +53,7 @@ import {
   runWorkflowSchema,
   savedViewCreateSchema,
   signalIngestSchema,
+  sodRuleCreateSchema,
   workflowDefinitionCreateSchema,
   workflowDefinitionStateSchema,
   workflowSimulationSchema,
@@ -53,6 +66,7 @@ import { buildEvidencePackage } from "../services/evidence";
 import { WorkflowEngine } from "../services/workflowEngine";
 import { evaluatePolicy } from "../services/policyEngine";
 import { computeSlaBreaches } from "../services/sla";
+import { approvalsForRequest, canWriteField, maskObjectForActor, validateSod } from "../services/governance";
 
 const roles: UserRole[] = [
   "end-user",
@@ -263,13 +277,84 @@ export const createRoutes = (store: ApexStore): Router => {
     }
   }
 
+  if (store.catalogItems.size === 0) {
+    for (const item of catalogItems) {
+      const catalogItem: CatalogItemDefinition = {
+        id: item.id,
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: item.name,
+        description: item.description,
+        category: item.category,
+        audience: item.audience,
+        regions: ["global"],
+        expectedDelivery: item.expectedDelivery,
+        formFields: [
+          {
+            id: store.createId(),
+            key: "business_justification",
+            label: "Business Justification",
+            type: "text",
+            required: true
+          }
+        ],
+        riskLevel: item.id === "cat-admin" ? "high" : "medium",
+        defaultWorkflowDefinitionId:
+          item.id === "cat-saas-access" ? "wf-saas-access-v1" : item.id === "cat-laptop" ? "wf-jml-joiner-v1" : undefined,
+        active: true,
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.catalogItems.set(catalogItem.id, catalogItem);
+    }
+  }
+
+  if (store.sodRules.size === 0) {
+    const sod: SodRule = {
+      id: "sod-req-approval",
+      name: "Requester cannot approve own request",
+      description: "Prevents requester from approving the same request type.",
+      requestTypes: ["Request", "Change"],
+      enabled: true
+    };
+    store.sodRules.set(sod.id, sod);
+  }
+
+  if (store.approvalMatrixRules.size === 0) {
+    const baseline: ApprovalMatrixRule[] = [
+      {
+        id: "am-request-medium",
+        name: "Standard request approvals",
+        requestType: "Request",
+        riskLevel: "medium",
+        approverTypes: ["manager"],
+        enabled: true
+      },
+      {
+        id: "am-request-high",
+        name: "High risk request approvals",
+        requestType: "Request",
+        riskLevel: "high",
+        approverTypes: ["manager", "security"],
+        enabled: true
+      }
+    ];
+    for (const rule of baseline) {
+      store.approvalMatrixRules.set(rule.id, rule);
+    }
+  }
+
   router.get("/health", (_req, res) => {
     res.json({ ok: true, service: "apex-control-plane", now: nowIso() });
   });
 
   router.get("/objects", (req, res) => {
+    const actor = getActor(req.headers);
     const type = req.query.type ? String(req.query.type) : undefined;
-    const data = [...store.objects.values()].filter((obj) => (type ? obj.type === type : true));
+    const restrictions = [...store.fieldRestrictions.values()];
+    const data = [...store.objects.values()]
+      .filter((obj) => (type ? obj.type === type : true))
+      .map((obj) => maskObjectForActor(obj, actor, restrictions));
     res.json({ data });
   });
 
@@ -311,12 +396,14 @@ export const createRoutes = (store: ApexStore): Router => {
   });
 
   router.get("/objects/:id", (req, res) => {
+    const actor = getActor(req.headers);
     const object = store.objects.get(req.params.id);
     if (!object) {
       res.status(404).json({ error: "Object not found" });
       return;
     }
-    res.json({ data: object });
+    const restrictions = [...store.fieldRestrictions.values()];
+    res.json({ data: maskObjectForActor(object, actor, restrictions) });
   });
 
   router.patch("/objects/:id", (req, res) => {
@@ -328,6 +415,14 @@ export const createRoutes = (store: ApexStore): Router => {
     if (!object) {
       res.status(404).json({ error: "Object not found" });
       return;
+    }
+
+    const restrictions = [...store.fieldRestrictions.values()];
+    for (const field of Object.keys(parsed.fields)) {
+      if (!canWriteField(object.type, field, actor, restrictions)) {
+        res.status(403).json({ error: `Field '${field}' is restricted for role '${actor.role}'` });
+        return;
+      }
     }
 
     const before = { ...object.fields };
@@ -419,7 +514,187 @@ export const createRoutes = (store: ApexStore): Router => {
   });
 
   router.get("/catalog/items", (_req, res) => {
-    res.json({ data: catalogItems });
+    res.json({ data: [...store.catalogItems.values()] });
+  });
+
+  router.post("/catalog/items", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = catalogItemCreateSchema.parse(req.body);
+    const item: CatalogItemDefinition = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      description: parsed.description,
+      category: parsed.category,
+      audience: parsed.audience,
+      regions: parsed.regions,
+      expectedDelivery: parsed.expectedDelivery,
+      formFields: parsed.formFields.map((field) => ({
+        id: store.createId(),
+        key: field.key,
+        label: field.label,
+        type: field.type,
+        required: field.required,
+        options: field.options,
+        requiredIf: field.requiredIf,
+        defaultValue: field.defaultValue
+      })),
+      defaultWorkflowDefinitionId: parsed.defaultWorkflowDefinitionId,
+      riskLevel: parsed.riskLevel,
+      active: parsed.active,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.catalogItems.set(item.id, item);
+    res.status(201).json({ data: item });
+  });
+
+  router.patch("/catalog/items/:id", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = catalogItemUpdateSchema.parse(req.body);
+    const item = store.catalogItems.get(req.params.id);
+    if (!item) {
+      res.status(404).json({ error: "Catalog item not found" });
+      return;
+    }
+    if (parsed.tenantId !== undefined) item.tenantId = parsed.tenantId;
+    if (parsed.workspaceId !== undefined) item.workspaceId = parsed.workspaceId;
+    if (parsed.name !== undefined) item.name = parsed.name;
+    if (parsed.description !== undefined) item.description = parsed.description;
+    if (parsed.category !== undefined) item.category = parsed.category;
+    if (parsed.audience !== undefined) item.audience = parsed.audience;
+    if (parsed.regions !== undefined) item.regions = parsed.regions;
+    if (parsed.expectedDelivery !== undefined) item.expectedDelivery = parsed.expectedDelivery;
+    if (parsed.defaultWorkflowDefinitionId !== undefined) {
+      item.defaultWorkflowDefinitionId = parsed.defaultWorkflowDefinitionId;
+    }
+    if (parsed.riskLevel !== undefined) item.riskLevel = parsed.riskLevel;
+    if (parsed.active !== undefined) item.active = parsed.active;
+    item.updatedAt = nowIso();
+    if (parsed.formFields) {
+      item.formFields = parsed.formFields.map((field) => ({
+        id: store.createId(),
+        key: field.key,
+        label: field.label,
+        type: field.type,
+        required: field.required ?? false,
+        options: field.options,
+        requiredIf: field.requiredIf,
+        defaultValue: field.defaultValue
+      }));
+    }
+    store.catalogItems.set(item.id, item);
+    res.json({ data: item });
+  });
+
+  router.post("/catalog/items/:id/preview", (req, res) => {
+    const parsed = catalogPreviewSchema.parse(req.body);
+    const item = store.catalogItems.get(req.params.id);
+    if (!item) {
+      res.status(404).json({ error: "Catalog item not found" });
+      return;
+    }
+
+    const resolvedFields = item.formFields.map((field) => {
+      const requiredByCondition =
+        field.requiredIf !== undefined
+          ? parsed.fieldValues[field.requiredIf.key] === field.requiredIf.equals
+          : false;
+      return {
+        ...field,
+        requiredResolved: field.required || requiredByCondition,
+        value: parsed.fieldValues[field.key] ?? field.defaultValue ?? null
+      };
+    });
+
+    res.json({
+      data: {
+        catalogItemId: item.id,
+        fields: resolvedFields
+      }
+    });
+  });
+
+  router.post("/catalog/submit", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = catalogSubmitSchema.parse(req.body);
+    const item = store.catalogItems.get(parsed.catalogItemId);
+    if (!item || !item.active) {
+      res.status(404).json({ error: "Catalog item not found or inactive" });
+      return;
+    }
+
+    const approvalTypes = approvalsForRequest(
+      [...store.approvalMatrixRules.values()],
+      "Request",
+      item.riskLevel,
+      parsed.estimatedCost
+    );
+
+    for (const type of approvalTypes) {
+      const approverId = `${type}-approver`;
+      const sod = validateSod([...store.sodRules.values()], "Request", parsed.requesterId, approverId);
+      if (!sod.ok) {
+        res.status(409).json({ error: sod.reason ?? "Separation-of-duties validation failed" });
+        return;
+      }
+    }
+
+    const workItem: WorkItem = {
+      id: store.createId(),
+      tenantId: item.tenantId,
+      workspaceId: item.workspaceId,
+      type: "Request",
+      status: "Submitted",
+      priority: item.riskLevel === "high" ? "P1" : "P2",
+      title: parsed.title,
+      description: parsed.description,
+      requesterId: parsed.requesterId,
+      assignmentGroup: "Catalog Fulfillment",
+      linkedObjectIds: [],
+      tags: ["catalog", item.category.toLowerCase()],
+      comments: [
+        {
+          id: store.createId(),
+          authorId: actor.id,
+          body: `Catalog submission for '${item.name}'`,
+          mentions: [],
+          createdAt: nowIso()
+        }
+      ],
+      attachments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.workItems.set(workItem.id, workItem);
+
+    const createdApprovals = approvalTypes.map((type) => {
+      const approverId = `${type}-approver`;
+      const approval = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        workItemId: workItem.id,
+        type,
+        approverId,
+        decision: "pending" as const,
+        createdAt: nowIso()
+      };
+      store.approvals.set(approval.id, approval);
+      return approval;
+    });
+
+    res.status(201).json({
+      data: {
+        workItem,
+        approvals: createdApprovals,
+        fieldValues: parsed.fieldValues
+      }
+    });
   });
 
   router.get("/kb/articles", (_req, res) => {
@@ -754,6 +1029,33 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data: link });
   });
 
+  router.get("/overlay/external-ticket-links/:id/comments", (req, res) => {
+    const data = [...store.externalTicketComments.values()].filter(
+      (comment) => comment.externalTicketLinkId === req.params.id
+    );
+    res.json({ data });
+  });
+
+  router.post("/overlay/external-ticket-links/:id/comments", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = externalTicketCommentSchema.parse(req.body);
+    const link = store.externalTicketLinks.get(req.params.id);
+    if (!link) {
+      res.status(404).json({ error: "External ticket link not found" });
+      return;
+    }
+    const comment: ExternalTicketComment = {
+      id: store.createId(),
+      externalTicketLinkId: link.id,
+      author: actor.id,
+      body: parsed.body,
+      createdAt: nowIso()
+    };
+    store.externalTicketComments.set(comment.id, comment);
+    res.status(201).json({ data: comment });
+  });
+
   router.get("/admin/schemas", (_req, res) => {
     res.json({ data: [...store.customSchemas.values()] });
   });
@@ -784,6 +1086,85 @@ export const createRoutes = (store: ApexStore): Router => {
     };
     store.customSchemas.set(schema.id, schema);
     res.status(201).json({ data: schema });
+  });
+
+  router.get("/admin/rbac/field-restrictions", (_req, res) => {
+    res.json({ data: [...store.fieldRestrictions.values()] });
+  });
+
+  router.post("/admin/rbac/field-restrictions", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = fieldRestrictionCreateSchema.parse(req.body);
+    const restriction: FieldRestriction = {
+      id: store.createId(),
+      objectType: parsed.objectType,
+      field: parsed.field,
+      readRoles: parsed.readRoles,
+      writeRoles: parsed.writeRoles,
+      maskStyle: parsed.maskStyle
+    };
+    store.fieldRestrictions.set(restriction.id, restriction);
+    res.status(201).json({ data: restriction });
+  });
+
+  router.get("/admin/rbac/sod-rules", (_req, res) => {
+    res.json({ data: [...store.sodRules.values()] });
+  });
+
+  router.post("/admin/rbac/sod-rules", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = sodRuleCreateSchema.parse(req.body);
+    const rule: SodRule = {
+      id: store.createId(),
+      name: parsed.name,
+      description: parsed.description,
+      requestTypes: parsed.requestTypes,
+      enabled: parsed.enabled
+    };
+    store.sodRules.set(rule.id, rule);
+    res.status(201).json({ data: rule });
+  });
+
+  router.get("/admin/rbac/approval-matrix", (_req, res) => {
+    res.json({ data: [...store.approvalMatrixRules.values()] });
+  });
+
+  router.post("/admin/rbac/approval-matrix", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = approvalMatrixRuleCreateSchema.parse(req.body);
+    const rule: ApprovalMatrixRule = {
+      id: store.createId(),
+      name: parsed.name,
+      requestType: parsed.requestType,
+      riskLevel: parsed.riskLevel,
+      costThreshold: parsed.costThreshold,
+      approverTypes: parsed.approverTypes,
+      enabled: parsed.enabled
+    };
+    store.approvalMatrixRules.set(rule.id, rule);
+    res.status(201).json({ data: rule });
+  });
+
+  router.post("/admin/rbac/authorize", (req, res) => {
+    const actor = getActor(req.headers);
+    const action = String(req.body.action ?? "");
+    const allowed = can(
+      actor.role,
+      action as
+        | "object:view"
+        | "object:create"
+        | "object:update"
+        | "object:delete"
+        | "workflow:run"
+        | "workflow:edit"
+        | "approval:decide"
+        | "automation:high-risk"
+        | "audit:export"
+    );
+    res.json({ data: { actor, action, allowed } });
   });
 
   router.get("/admin/policies", (_req, res) => {

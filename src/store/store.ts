@@ -6,6 +6,8 @@ import {
   ConnectorConfig,
   ConnectorRun,
   CustomObjectSchema,
+  FieldRestriction,
+  ExternalTicketComment,
   ExternalTicketLink,
   GraphObject,
   GraphRelationship,
@@ -13,6 +15,9 @@ import {
   PolicyDefinition,
   PolicyException,
   SavedView,
+  SodRule,
+  ApprovalMatrixRule,
+  CatalogItemDefinition,
   SlaRule,
   SourceSignal,
   TimelineEvent,
@@ -41,6 +46,11 @@ export class ApexStore {
   externalTicketLinks = new Map<string, ExternalTicketLink>();
   notificationRules = new Map<string, NotificationRule>();
   configVersions = new Map<string, ConfigVersion>();
+  fieldRestrictions = new Map<string, FieldRestriction>();
+  sodRules = new Map<string, SodRule>();
+  approvalMatrixRules = new Map<string, ApprovalMatrixRule>();
+  catalogItems = new Map<string, CatalogItemDefinition>();
+  externalTicketComments = new Map<string, ExternalTicketComment>();
 
   createId(): string {
     return uuidv4();

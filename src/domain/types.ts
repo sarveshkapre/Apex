@@ -465,3 +465,67 @@ export interface ConfigVersion {
   payload: Record<string, unknown>;
   createdAt: string;
 }
+
+export interface FieldRestriction {
+  id: string;
+  objectType: ObjectType;
+  field: string;
+  readRoles: UserRole[];
+  writeRoles: UserRole[];
+  maskStyle?: "hidden" | "redacted";
+}
+
+export interface SodRule {
+  id: string;
+  name: string;
+  description: string;
+  requestTypes: WorkItemType[];
+  enabled: boolean;
+}
+
+export interface ApprovalMatrixRule {
+  id: string;
+  name: string;
+  requestType: WorkItemType;
+  riskLevel: RiskLevel;
+  costThreshold?: number;
+  approverTypes: ApprovalType[];
+  enabled: boolean;
+}
+
+export interface CatalogFormField {
+  id: string;
+  key: string;
+  label: string;
+  type: "string" | "number" | "date" | "enum" | "bool" | "text";
+  required: boolean;
+  options?: string[];
+  requiredIf?: { key: string; equals: string | number | boolean };
+  defaultValue?: string | number | boolean;
+}
+
+export interface CatalogItemDefinition {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  description: string;
+  category: string;
+  audience: string[];
+  regions: string[];
+  expectedDelivery: string;
+  formFields: CatalogFormField[];
+  defaultWorkflowDefinitionId?: string;
+  riskLevel: RiskLevel;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExternalTicketComment {
+  id: string;
+  externalTicketLinkId: string;
+  author: string;
+  body: string;
+  createdAt: string;
+}
