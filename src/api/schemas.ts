@@ -426,3 +426,12 @@ export const saasReclaimRunCreateSchema = z.object({
 export const saasReclaimRunRetrySchema = z.object({
   mode: z.enum(["dry-run", "live"]).default("live")
 });
+
+export const contractRenewalOverviewSchema = z.object({
+  daysAhead: z.number().int().positive().max(365).default(90)
+});
+
+export const contractRenewalRunSchema = z.object({
+  daysAhead: z.number().int().positive().max(365).default(90),
+  mode: z.enum(["dry-run", "live"]).default("dry-run")
+});

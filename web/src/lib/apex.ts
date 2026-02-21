@@ -9,6 +9,8 @@ import {
   CloudTagEnforcementResult,
   ConfigVersion,
   ConnectorConfig,
+  ContractRenewalOverview,
+  ContractRenewalRun,
   CustomObjectSchema,
   DashboardKpis,
   EvidencePackage,
@@ -876,6 +878,45 @@ export const enforceCloudTags = async (payload: {
     throw new Error("Failed to enforce cloud tags");
   }
   const json = (await response.json()) as ApiResponse<CloudTagEnforcementResult>;
+  return json.data;
+};
+
+export const getContractRenewalOverview = async (daysAhead = 90): Promise<ContractRenewalOverview> => {
+  return safe(
+    () => get<ContractRenewalOverview>(`/contracts/renewals/overview?daysAhead=${encodeURIComponent(String(daysAhead))}`),
+    {
+      daysAhead,
+      scannedContracts: 0,
+      dueContracts: 0,
+      dueSoonContracts: 0,
+      overdueContracts: 0,
+      candidates: []
+    }
+  );
+};
+
+export const listContractRenewalRuns = async (status?: "success" | "failed" | "partial"): Promise<ContractRenewalRun[]> => {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return safe(() => get<ContractRenewalRun[]>(`/contracts/renewals/runs${query}`), []);
+};
+
+export const runContractRenewals = async (payload: {
+  daysAhead: number;
+  mode: "dry-run" | "live";
+}): Promise<ContractRenewalRun> => {
+  const response = await fetch(`${API_BASE}/contracts/renewals/runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to run contract renewal reminders");
+  }
+  const json = (await response.json()) as ApiResponse<ContractRenewalRun>;
   return json.data;
 };
 

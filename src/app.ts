@@ -143,6 +143,7 @@ export const createApp = (): { app: express.Express; store: ApexStore } => {
       total_seats: 120,
       assigned_seats: 104,
       available_seats: 16,
+      contract_id: "ctr-figma-2026",
       renewal_date: new Date(Date.now() + 32 * 24 * 60 * 60 * 1000).toISOString()
     },
     provenance: {},
@@ -151,6 +152,80 @@ export const createApp = (): { app: express.Express; store: ApexStore } => {
       completeness: 0.9,
       consistency: 0.92,
       coverage: 0.89
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const figmaContractId = store.createId();
+  store.objects.set(figmaContractId, {
+    id: figmaContractId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "Contract",
+    fields: {
+      contract_id: "ctr-figma-2026",
+      vendor_name: "Figma",
+      spend: 96000,
+      start_date: new Date(Date.now() - 330 * 24 * 60 * 60 * 1000).toISOString(),
+      renewal_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      cancellation_notice_days: 30
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.93,
+      completeness: 0.9,
+      consistency: 0.92,
+      coverage: 0.9
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const sentryContractId = store.createId();
+  store.objects.set(sentryContractId, {
+    id: sentryContractId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "Contract",
+    fields: {
+      contract_id: "ctr-sentry-2026",
+      vendor_name: "Sentry",
+      spend: 42000,
+      start_date: new Date(Date.now() - 380 * 24 * 60 * 60 * 1000).toISOString(),
+      renewal_date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      simulate_renewal_failure: true
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.85,
+      completeness: 0.88,
+      consistency: 0.9,
+      coverage: 0.85
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const slackContractId = store.createId();
+  store.objects.set(slackContractId, {
+    id: slackContractId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "Contract",
+    fields: {
+      contract_id: "ctr-slack-2026",
+      vendor_name: "Slack",
+      spend: 78000,
+      start_date: new Date(Date.now() - 210 * 24 * 60 * 60 * 1000).toISOString(),
+      renewal_date: new Date(Date.now() + 140 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.89,
+      completeness: 0.86,
+      consistency: 0.9,
+      coverage: 0.87
     },
     createdAt: nowIso(),
     updatedAt: nowIso()

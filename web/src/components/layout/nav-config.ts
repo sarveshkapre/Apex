@@ -107,6 +107,12 @@ export const operatorNav: NavItem[] = [
     icon: AppWindow
   },
   {
+    href: "/operator/renewals",
+    label: "Renewals",
+    description: "Contract renewal pipeline and reminders",
+    icon: FileClock
+  },
+  {
     href: "/operator/integrations",
     label: "Integrations",
     description: "Connector health and sync control",

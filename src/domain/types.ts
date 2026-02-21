@@ -109,6 +109,7 @@ export type TimelineEventType =
   | "policy.evaluated"
   | "policy.exception.updated"
   | "saas.reclaim.run"
+  | "contract.renewal.run"
   | "external-ticket.linked"
   | "connector.sync"
   | "config.published"
@@ -571,4 +572,32 @@ export interface SaasReclaimRun {
   failedCount: number;
   createdExceptionIds: string[];
   candidates: SaasReclaimRunCandidate[];
+}
+
+export interface ContractRenewalCandidate {
+  contractObjectId: string;
+  vendorName: string;
+  renewalDate: string;
+  daysUntilRenewal: number;
+  status: "future" | "due-soon" | "overdue";
+  estimatedSpend: number;
+  linkedLicenseIds: string[];
+  action: "none" | "task-created" | "failed";
+  reason: string;
+  createdWorkItemId?: string;
+  createdExceptionId?: string;
+}
+
+export interface ContractRenewalRun {
+  id: string;
+  mode: "dry-run" | "live";
+  status: "success" | "failed" | "partial";
+  daysAhead: number;
+  startedAt: string;
+  completedAt: string;
+  scannedContracts: number;
+  dueContracts: number;
+  tasksCreated: number;
+  exceptionsCreated: number;
+  candidates: ContractRenewalCandidate[];
 }

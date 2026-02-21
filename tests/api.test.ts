@@ -528,4 +528,47 @@ describe("Apex API", () => {
     expect(retried.status).toBe(201);
     expect(["retry", "dry-run"]).toContain(retried.body.data.mode);
   });
+
+  it("returns contract renewal overview for upcoming contracts", async () => {
+    const { app } = createApp();
+
+    const overview = await request(app)
+      .get("/v1/contracts/renewals/overview")
+      .query({ daysAhead: 90 })
+      .set("x-actor-id", "fin-1")
+      .set("x-actor-role", "finance");
+
+    expect(overview.status).toBe(200);
+    expect(overview.body.data.scannedContracts).toBeGreaterThan(0);
+    expect(overview.body.data.dueContracts).toBeGreaterThan(0);
+    expect(Array.isArray(overview.body.data.candidates)).toBe(true);
+  });
+
+  it("runs contract renewal reminders and stores run history", async () => {
+    const { app } = createApp();
+
+    const dryRun = await request(app)
+      .post("/v1/contracts/renewals/runs")
+      .set("x-actor-id", "proc-1")
+      .set("x-actor-role", "it-agent")
+      .send({ mode: "dry-run", daysAhead: 90 });
+
+    expect(dryRun.status).toBe(201);
+    expect(dryRun.body.data.mode).toBe("dry-run");
+    expect(dryRun.body.data.tasksCreated).toBe(0);
+
+    const liveRun = await request(app)
+      .post("/v1/contracts/renewals/runs")
+      .set("x-actor-id", "proc-1")
+      .set("x-actor-role", "it-agent")
+      .send({ mode: "live", daysAhead: 90 });
+
+    expect(liveRun.status).toBe(201);
+    expect(["success", "failed", "partial"]).toContain(liveRun.body.data.status);
+    expect(liveRun.body.data.dueContracts).toBeGreaterThan(0);
+
+    const runs = await request(app).get("/v1/contracts/renewals/runs");
+    expect(runs.status).toBe(200);
+    expect(runs.body.data.length).toBeGreaterThan(0);
+  });
 });

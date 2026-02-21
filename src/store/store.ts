@@ -5,6 +5,7 @@ import {
   ConfigVersion,
   ConnectorConfig,
   ConnectorRun,
+  ContractRenewalRun,
   CustomObjectSchema,
   FieldRestriction,
   ExternalTicketComment,
@@ -55,6 +56,7 @@ export class ApexStore {
   externalTicketComments = new Map<string, ExternalTicketComment>();
   saasReclaimPolicies = new Map<string, SaasReclaimPolicy>();
   saasReclaimRuns = new Map<string, SaasReclaimRun>();
+  contractRenewalRuns = new Map<string, ContractRenewalRun>();
 
   createId(): string {
     return uuidv4();

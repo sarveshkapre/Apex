@@ -419,3 +419,40 @@ export interface SaasReclaimRun {
   createdExceptionIds: string[];
   candidates: SaasReclaimRunCandidate[];
 }
+
+export interface ContractRenewalCandidate {
+  contractObjectId: string;
+  vendorName: string;
+  renewalDate: string;
+  daysUntilRenewal: number;
+  status: "future" | "due-soon" | "overdue";
+  estimatedSpend: number;
+  linkedLicenseIds: string[];
+  action: "none" | "task-created" | "failed";
+  reason: string;
+  createdWorkItemId?: string;
+  createdExceptionId?: string;
+}
+
+export interface ContractRenewalOverview {
+  daysAhead: number;
+  scannedContracts: number;
+  dueContracts: number;
+  dueSoonContracts: number;
+  overdueContracts: number;
+  candidates: ContractRenewalCandidate[];
+}
+
+export interface ContractRenewalRun {
+  id: string;
+  mode: "dry-run" | "live";
+  status: "success" | "failed" | "partial";
+  daysAhead: number;
+  startedAt: string;
+  completedAt: string;
+  scannedContracts: number;
+  dueContracts: number;
+  tasksCreated: number;
+  exceptionsCreated: number;
+  candidates: ContractRenewalCandidate[];
+}

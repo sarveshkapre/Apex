@@ -7,6 +7,7 @@ import {
   ConfigVersion,
   ConnectorConfig,
   ConnectorRun,
+  ContractRenewalRun,
   CustomObjectSchema,
   ExternalTicketComment,
   ExternalTicketLink,
@@ -57,6 +58,8 @@ import {
   relationshipCreateSchema,
   runWorkflowSchema,
   savedViewCreateSchema,
+  contractRenewalOverviewSchema,
+  contractRenewalRunSchema,
   signalIngestSchema,
   saasReclaimPolicyCreateSchema,
   saasReclaimPolicyUpdateSchema,
@@ -143,6 +146,22 @@ const getInactiveDays = (lastActiveRaw: unknown): number => {
   }
   const diffMs = Date.now() - last;
   return Math.floor(diffMs / (24 * 60 * 60 * 1000));
+};
+
+const parseIsoDate = (value: unknown): Date | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+};
+
+const daysUntilDate = (date: Date): number => {
+  const diffMs = date.getTime() - Date.now();
+  return Math.ceil(diffMs / (24 * 60 * 60 * 1000));
 };
 
 export const createRoutes = (store: ApexStore): Router => {
@@ -581,6 +600,191 @@ export const createRoutes = (store: ApexStore): Router => {
     return run;
   };
 
+  const buildContractRenewalCandidates = (daysAhead: number) => {
+    const contracts = [...store.objects.values()].filter((object) => object.type === "Contract");
+    const licenses = [...store.objects.values()].filter((object) => object.type === "License");
+
+    const candidates = contracts
+      .map((contract) => {
+        const renewalDateValue = contract.fields.renewal_date ?? contract.fields.renewalDate;
+        const renewalDate = parseIsoDate(renewalDateValue);
+        if (!renewalDate) {
+          return null;
+        }
+        const daysUntilRenewal = daysUntilDate(renewalDate);
+        if (daysUntilRenewal > daysAhead) {
+          return null;
+        }
+        const renewalStatus =
+          daysUntilRenewal < 0
+            ? "overdue"
+            : daysUntilRenewal <= 30
+              ? "due-soon"
+              : "future";
+
+        const vendorName = String(contract.fields.vendor_name ?? contract.fields.vendor ?? contract.fields.name ?? "Unknown Vendor");
+        const contractId = String(contract.fields.contract_id ?? contract.id);
+        const linkedLicenseIds = licenses
+          .filter((license) => {
+            const linkedContractId = String(license.fields.contract_id ?? "");
+            if (linkedContractId && linkedContractId === contractId) {
+              return true;
+            }
+            const app = String(license.fields.app ?? "");
+            return app.toLowerCase().includes(vendorName.toLowerCase()) || vendorName.toLowerCase().includes(app.toLowerCase());
+          })
+          .map((license) => license.id);
+
+        return {
+          contractObjectId: contract.id,
+          vendorName,
+          renewalDate: renewalDate.toISOString(),
+          daysUntilRenewal,
+          status: renewalStatus as "future" | "due-soon" | "overdue",
+          estimatedSpend: Number(contract.fields.spend ?? contract.fields.amount ?? 0),
+          linkedLicenseIds,
+          action: "none" as const,
+          reason: "Renewal identified for review."
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((left, right) => left.daysUntilRenewal - right.daysUntilRenewal);
+
+    return {
+      scannedContracts: contracts.length,
+      candidates
+    };
+  };
+
+  const runContractRenewals = (
+    actorId: string,
+    mode: "dry-run" | "live",
+    daysAhead: number
+  ): ContractRenewalRun => {
+    const { scannedContracts, candidates } = buildContractRenewalCandidates(daysAhead);
+    let tasksCreated = 0;
+    let exceptionsCreated = 0;
+    let failedCount = 0;
+
+    const executed = candidates.map((candidate) => {
+      const contract = store.objects.get(candidate.contractObjectId);
+      if (!contract) {
+        failedCount += 1;
+        return {
+          ...candidate,
+          action: "failed" as const,
+          reason: "Contract object missing during execution."
+        };
+      }
+
+      if (mode === "dry-run") {
+        return {
+          ...candidate,
+          action: "none" as const,
+          reason: "Would create renewal review task on live run."
+        };
+      }
+
+      if (contract.fields.simulate_renewal_failure === true) {
+        failedCount += 1;
+        const exception: WorkItem = {
+          id: store.createId(),
+          tenantId: contract.tenantId,
+          workspaceId: contract.workspaceId,
+          type: "Exception",
+          status: "Submitted",
+          priority: "P2",
+          title: `Renewal reminder failed: ${candidate.vendorName}`,
+          description: `Failed to create renewal workflow for contract ${contract.id}.`,
+          requesterId: actorId,
+          assignmentGroup: "Procurement Operations",
+          linkedObjectIds: [contract.id],
+          tags: ["contract", "renewal", "automation-failed"],
+          comments: [],
+          attachments: [],
+          createdAt: nowIso(),
+          updatedAt: nowIso()
+        };
+        store.workItems.set(exception.id, exception);
+        exceptionsCreated += 1;
+        return {
+          ...candidate,
+          action: "failed" as const,
+          reason: "Reminder execution failed. Routed to exception queue.",
+          createdExceptionId: exception.id
+        };
+      }
+
+      const task: WorkItem = {
+        id: store.createId(),
+        tenantId: contract.tenantId,
+        workspaceId: contract.workspaceId,
+        type: "Task",
+        status: "Submitted",
+        priority: candidate.daysUntilRenewal <= 7 ? "P1" : "P2",
+        title: `Renewal review: ${candidate.vendorName}`,
+        description: `Review contract renewal due ${candidate.renewalDate}.`,
+        requesterId: actorId,
+        assignmentGroup: "Procurement Operations",
+        linkedObjectIds: [contract.id, ...candidate.linkedLicenseIds],
+        tags: ["contract", "renewal", "procurement"],
+        comments: [],
+        attachments: [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.workItems.set(task.id, task);
+      tasksCreated += 1;
+      return {
+        ...candidate,
+        action: "task-created" as const,
+        reason: "Renewal review task created.",
+        createdWorkItemId: task.id
+      };
+    });
+
+    let status: ContractRenewalRun["status"] = "success";
+    if (failedCount > 0 && tasksCreated > 0) {
+      status = "partial";
+    } else if (failedCount > 0 && tasksCreated === 0) {
+      status = "failed";
+    }
+
+    const run: ContractRenewalRun = {
+      id: store.createId(),
+      mode,
+      status,
+      daysAhead,
+      startedAt: nowIso(),
+      completedAt: nowIso(),
+      scannedContracts,
+      dueContracts: candidates.length,
+      tasksCreated,
+      exceptionsCreated,
+      candidates: executed
+    };
+    store.contractRenewalRuns.set(run.id, run);
+
+    store.pushTimeline({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      entityType: "workflow",
+      entityId: run.id,
+      eventType: "contract.renewal.run",
+      actor: actorId,
+      createdAt: nowIso(),
+      payload: {
+        mode: run.mode,
+        status: run.status,
+        dueContracts: run.dueContracts,
+        tasksCreated: run.tasksCreated,
+        exceptionsCreated: run.exceptionsCreated
+      }
+    });
+
+    return run;
+  };
+
   router.get("/health", (_req, res) => {
     res.json({ ok: true, service: "apex-control-plane", now: nowIso() });
   });
@@ -907,6 +1111,44 @@ export const createRoutes = (store: ApexStore): Router => {
         remediations
       }
     });
+  });
+
+  router.get("/contracts/renewals/overview", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:view"));
+    const parsed = contractRenewalOverviewSchema.parse({
+      daysAhead: req.query.daysAhead ? Number(req.query.daysAhead) : undefined
+    });
+    const { scannedContracts, candidates } = buildContractRenewalCandidates(parsed.daysAhead);
+    const dueSoon = candidates.filter((candidate) => candidate.status === "due-soon").length;
+    const overdue = candidates.filter((candidate) => candidate.status === "overdue").length;
+
+    res.json({
+      data: {
+        daysAhead: parsed.daysAhead,
+        scannedContracts,
+        dueContracts: candidates.length,
+        dueSoonContracts: dueSoon,
+        overdueContracts: overdue,
+        candidates
+      }
+    });
+  });
+
+  router.get("/contracts/renewals/runs", (req, res) => {
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const data = [...store.contractRenewalRuns.values()]
+      .filter((run) => (status ? run.status === status : true))
+      .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
+    res.json({ data });
+  });
+
+  router.post("/contracts/renewals/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = contractRenewalRunSchema.parse(req.body);
+    const run = runContractRenewals(actor.id, parsed.mode, parsed.daysAhead);
+    res.status(201).json({ data: run });
   });
 
   router.get("/saas/reclaim/policies", (_req, res) => {
