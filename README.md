@@ -24,6 +24,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Approval model and high-risk automation gating
 - Approval engine now supports request-info decisions and parallel chain semantics (`all` / `any`)
 - Requester response loop for info-requested approvals (`My Requests` -> respond -> approval reopens)
+- Approvals inbox now includes contextual risk/recommendation hints and Admin Studio supports manual approval chain creation
 - Approval timeout lifecycle with expiry and escalation to fallback approver
 - Workflow engine with execution logs and exception item creation
 - Built-in playbook workflow definitions:
@@ -88,6 +89,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Command surface with AI request drafting, policy/workflow draft generation, and insights
 - Workflow Studio with draft/publish/rollback/simulate
 - Queue Center controls for approval decisions/delegation and exception retry/resolve/escalate
+- Queue Center approvals now show contextual work-item details, risk level, and recommended decision hints
 - Queue Center timeout escalation controls for pending approvals
 - Queue Center bulk operations for assign/priority/tag/comment/workflow-step/export actions
 - Queue Center external ticket comment sync for overlay-mode collaboration
@@ -163,6 +165,7 @@ npm --prefix web run build
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `POST /v1/work-items/bulk`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
+- `GET /v1/approvals/inbox?includeContext=true`
 - `POST /v1/approvals/chains`
 - `POST /v1/work-items/:id/respond-info-request`
 - `POST /v1/approvals/:id/expiry`, `POST /v1/approvals/escalations/run`

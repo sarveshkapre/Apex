@@ -1,5 +1,7 @@
 import {
   Approval,
+  ApprovalChainResult,
+  ApprovalInboxItem,
   ApprovalEscalationRunResult,
   ApprovalMatrixRule,
   AiInsight,
@@ -1076,11 +1078,44 @@ export const simulateWorkflowDefinition = async (
   );
 };
 
-export const listApprovalsInbox = async (approverId: string): Promise<Approval[]> => {
+export const listApprovalsInbox = async (approverId: string): Promise<ApprovalInboxItem[]> => {
   return safe(
-    () => get<Approval[]>(`/approvals/inbox?approverId=${encodeURIComponent(approverId)}`),
+    () => get<ApprovalInboxItem[]>(`/approvals/inbox?approverId=${encodeURIComponent(approverId)}&includeContext=true`),
     mockApprovals
   );
+};
+
+export const createApprovalChain = async (payload: {
+  workItemId: string;
+  mode: "all" | "any";
+  approvals: Array<{
+    type: "manager" | "app-owner" | "security" | "finance" | "it" | "custom";
+    approverId: string;
+    expiresAt?: string;
+  }>;
+  reason?: string;
+}): Promise<ApprovalChainResult> => {
+  const response = await fetch(`${API_BASE}/approvals/chains`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      workItemId: payload.workItemId,
+      mode: payload.mode,
+      approvals: payload.approvals,
+      reason: payload.reason
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to create approval chain");
+  }
+  const json = (await response.json()) as ApiResponse<ApprovalChainResult>;
+  return json.data;
 };
 
 export const decideApproval = async (

@@ -136,12 +136,35 @@ export interface Approval {
   chainOrder?: number;
 }
 
+export interface ApprovalInboxItem extends Approval {
+  riskLevel?: "low" | "medium" | "high";
+  recommendedDecision?: "approve" | "reject" | "request-info";
+  evidenceSummary?: string;
+  workItem?: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    priority: string;
+    assignmentGroup?: string;
+    requesterId: string;
+    tags: string[];
+  };
+}
+
 export interface ApprovalEscalationRunResult {
   mode: "dry-run" | "live";
   expiredCount: number;
   escalatedCount: number;
   expiredApprovalIds: string[];
   escalatedApprovalIds: string[];
+}
+
+export interface ApprovalChainResult {
+  chainId: string;
+  mode: "all" | "any";
+  workItemId: string;
+  approvals: Approval[];
 }
 
 export interface WorkflowDefinition {

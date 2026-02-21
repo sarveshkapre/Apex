@@ -26,7 +26,7 @@ import {
   setApprovalExpiry
 } from "@/lib/apex";
 import {
-  Approval,
+  ApprovalInboxItem,
   ExternalTicketComment,
   ExternalTicketLink,
   SlaBreach,
@@ -44,7 +44,7 @@ export function QueueOps({
 }: {
   items: WorkItem[];
   breaches: SlaBreach[];
-  approvals: Approval[];
+  approvals: ApprovalInboxItem[];
   exceptions: WorkItem[];
   externalLinks: ExternalTicketLink[];
 }) {
@@ -412,6 +412,17 @@ export function QueueOps({
                 {approval.expiresAt ? ` • expires ${approval.expiresAt}` : ""}
                 {approval.chainId ? ` • chain ${approval.chainMode ?? "all"} #${approval.chainOrder ?? "-"}` : ""}
               </p>
+              {approval.workItem ? (
+                <p className="mb-1 text-[11px] text-zinc-500">
+                  {approval.workItem.title} • {approval.workItem.type} • {approval.workItem.priority} • {approval.workItem.status}
+                </p>
+              ) : null}
+              {approval.riskLevel || approval.recommendedDecision || approval.evidenceSummary ? (
+                <p className="mb-1 text-[11px] text-zinc-500">
+                  risk {approval.riskLevel ?? "n/a"} • recommend {approval.recommendedDecision ?? "n/a"}
+                  {approval.evidenceSummary ? ` • ${approval.evidenceSummary}` : ""}
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-1.5">
                 <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
                   const response = await decideApproval(approval.id, "approved", "Approved in queue center");

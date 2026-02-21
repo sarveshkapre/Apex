@@ -4201,10 +4201,66 @@ export const createRoutes = (store: ApexStore): Router => {
     const actor = getActor(req.headers);
     const approverId = req.query.approverId ? String(req.query.approverId) : actor.id;
     const decision = req.query.decision ? String(req.query.decision) : undefined;
-    const data = [...store.approvals.values()].filter(
+    const includeContext = String(req.query.includeContext ?? "false").toLowerCase() === "true";
+
+    const base = [...store.approvals.values()].filter(
       (approval) =>
         approval.approverId === approverId && (decision ? approval.decision === decision : true)
     );
+
+    if (!includeContext) {
+      res.json({ data: base });
+      return;
+    }
+
+    const data = base.map((approval) => {
+      const workItem = store.workItems.get(approval.workItemId);
+      if (!workItem) {
+        return {
+          ...approval,
+          riskLevel: "medium",
+          recommendedDecision: "request-info",
+          evidenceSummary: "Work item context missing."
+        };
+      }
+
+      const priorityRisk =
+        workItem.priority === "P0" || workItem.priority === "P1"
+          ? "high"
+          : workItem.priority === "P2"
+            ? "medium"
+            : "low";
+      const riskLevel =
+        workItem.tags.includes("vip") || workItem.tags.includes("legal-hold") ? "high" : priorityRisk;
+
+      let recommendedDecision: "approve" | "reject" | "request-info";
+      if (workItem.status === "Blocked") {
+        recommendedDecision = "reject";
+      } else if (!workItem.description || workItem.description.trim().length < 8 || workItem.linkedObjectIds.length === 0) {
+        recommendedDecision = "request-info";
+      } else if (riskLevel === "high" && workItem.comments.length < 1) {
+        recommendedDecision = "request-info";
+      } else {
+        recommendedDecision = "approve";
+      }
+
+      return {
+        ...approval,
+        riskLevel,
+        recommendedDecision,
+        workItem: {
+          id: workItem.id,
+          title: workItem.title,
+          type: workItem.type,
+          status: workItem.status,
+          priority: workItem.priority,
+          assignmentGroup: workItem.assignmentGroup,
+          requesterId: workItem.requesterId,
+          tags: workItem.tags
+        },
+        evidenceSummary: `${workItem.comments.length} comment(s), ${workItem.attachments.length} attachment(s), ${workItem.linkedObjectIds.length} linked object(s).`
+      };
+    });
     res.json({ data });
   });
 

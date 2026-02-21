@@ -916,6 +916,118 @@ describe("Apex API", () => {
     expect(workItem.status).toBe("In Progress");
   });
 
+  it("keeps all-of approval chains pending until every approval is approved", async () => {
+    const { app } = createApp();
+
+    const workItemResponse = await request(app)
+      .post("/v1/work-items")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Change",
+        priority: "P1",
+        title: "Approval chain all-mode test",
+        description: "Change requires manager and security approvals.",
+        requesterId: "person-1",
+        assignmentGroup: "Access Ops",
+        linkedObjectIds: ["obj-1"],
+        tags: ["vip"]
+      });
+    expect(workItemResponse.status).toBe(201);
+    const workItemId = workItemResponse.body.data.id as string;
+
+    const chain = await request(app)
+      .post("/v1/approvals/chains")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        workItemId,
+        mode: "all",
+        approvals: [
+          { type: "manager", approverId: "manager-approver" },
+          { type: "security", approverId: "security-approver" }
+        ]
+      });
+    expect(chain.status).toBe(201);
+
+    const firstApprovalId = chain.body.data.approvals[0].id as string;
+    const secondApprovalId = chain.body.data.approvals[1].id as string;
+
+    const firstApprove = await request(app)
+      .post(`/v1/approvals/${firstApprovalId}/decision`)
+      .set("x-actor-id", "manager-approver")
+      .set("x-actor-role", "it-admin")
+      .send({ decision: "approved", comment: "Manager approved." });
+    expect(firstApprove.status).toBe(200);
+
+    const midWorkItems = await request(app).get("/v1/work-items");
+    const midWorkItem = midWorkItems.body.data.find((item: { id: string }) => item.id === workItemId);
+    expect(midWorkItem.status).toBe("Submitted");
+
+    const secondApprove = await request(app)
+      .post(`/v1/approvals/${secondApprovalId}/decision`)
+      .set("x-actor-id", "security-approver")
+      .set("x-actor-role", "it-admin")
+      .send({ decision: "approved", comment: "Security approved." });
+    expect(secondApprove.status).toBe(200);
+
+    const finalWorkItems = await request(app).get("/v1/work-items");
+    const finalWorkItem = finalWorkItems.body.data.find((item: { id: string }) => item.id === workItemId);
+    expect(finalWorkItem.status).toBe("In Progress");
+  });
+
+  it("returns approval inbox context with risk and recommendation hints", async () => {
+    const { app } = createApp();
+
+    const workItemResponse = await request(app)
+      .post("/v1/work-items")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Request",
+        priority: "P1",
+        title: "Approval inbox context test",
+        description: "Need sensitive access with supporting details",
+        requesterId: "person-1",
+        assignmentGroup: "Access Ops",
+        linkedObjectIds: ["obj-2"],
+        tags: ["vip"]
+      });
+    expect(workItemResponse.status).toBe(201);
+    const workItemId = workItemResponse.body.data.id as string;
+
+    const chain = await request(app)
+      .post("/v1/approvals/chains")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        workItemId,
+        mode: "all",
+        approvals: [{ type: "manager", approverId: "manager-approver" }]
+      });
+    expect(chain.status).toBe(201);
+
+    const inbox = await request(app)
+      .get("/v1/approvals/inbox")
+      .set("x-actor-id", "manager-approver")
+      .set("x-actor-role", "it-admin")
+      .query({ approverId: "manager-approver", includeContext: true });
+    expect(inbox.status).toBe(200);
+    const match = inbox.body.data.find((item: { workItem?: { id: string } }) => item.workItem?.id === workItemId);
+    expect(match).toBeTruthy();
+    expect(match.riskLevel).toBe("high");
+    expect(["approve", "request-info", "reject"]).toContain(match.recommendedDecision);
+    expect(typeof match.evidenceSummary).toBe("string");
+  });
+
   it("expires timed-out approvals and escalates them to fallback approver", async () => {
     const { app } = createApp();
 

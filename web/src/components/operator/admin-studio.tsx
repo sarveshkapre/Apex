@@ -17,6 +17,7 @@ import {
 } from "@/lib/types";
 import {
   authorizeAction,
+  createApprovalChain,
   createApprovalMatrixRule,
   createConfigVersion,
   createCustomSchema,
@@ -85,6 +86,11 @@ export function AdminStudio({
   const [matrixRequestType, setMatrixRequestType] = React.useState("Request");
   const [matrixRisk, setMatrixRisk] = React.useState<"low" | "medium" | "high">("high");
   const [matrixApprovers, setMatrixApprovers] = React.useState("manager,security");
+
+  const [chainWorkItemId, setChainWorkItemId] = React.useState("");
+  const [chainMode, setChainMode] = React.useState<"all" | "any">("all");
+  const [chainApprovals, setChainApprovals] = React.useState("manager:manager-approver,security:security-approver");
+  const [chainReason, setChainReason] = React.useState("Manual approval chain required for sensitive change.");
 
   const [authAction, setAuthAction] = React.useState("automation:high-risk");
   const [authResult, setAuthResult] = React.useState<string>("");
@@ -203,6 +209,40 @@ export function AdminStudio({
     await refresh();
   };
 
+  const addApprovalChain = async () => {
+    if (!chainWorkItemId.trim()) {
+      setStatus("Work item id is required to create an approval chain.");
+      return;
+    }
+    const parsedApprovals = parseCsv(chainApprovals)
+      .map((entry) => {
+        const [typeRaw, approverId] = entry.split(":").map((value) => value.trim());
+        if (!typeRaw || !approverId) {
+          return null;
+        }
+        const type = typeRaw as "manager" | "app-owner" | "security" | "finance" | "it" | "custom";
+        return { type, approverId };
+      })
+      .filter((item): item is { type: "manager" | "app-owner" | "security" | "finance" | "it" | "custom"; approverId: string } => Boolean(item));
+
+    if (parsedApprovals.length === 0) {
+      setStatus("Approval chain must include at least one type:approver pair.");
+      return;
+    }
+
+    try {
+      const result = await createApprovalChain({
+        workItemId: chainWorkItemId.trim(),
+        mode: chainMode,
+        approvals: parsedApprovals,
+        reason: chainReason
+      });
+      setStatus(`Approval chain ${result.chainId.slice(0, 8)} created with ${result.approvals.length} step(s).`);
+    } catch {
+      setStatus("Failed to create approval chain.");
+    }
+  };
+
   const checkAuthorization = async () => {
     const result = await authorizeAction(authAction);
     setAuthResult(`${result.actor.role} ${result.allowed ? "can" : "cannot"} run ${result.action}`);
@@ -309,6 +349,34 @@ export function AdminStudio({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
+        <CardHeader>
+          <CardTitle className="text-base">Manual approval chain</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Input
+            value={chainWorkItemId}
+            onChange={(event) => setChainWorkItemId(event.target.value)}
+            placeholder="Work item id"
+            className="max-w-sm"
+          />
+          <Select value={chainMode} onValueChange={(value) => setChainMode(value as "all" | "any")}>
+            <SelectTrigger className="max-w-sm"><SelectValue placeholder="Chain mode" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All approvers required</SelectItem>
+              <SelectItem value="any">Any approver can satisfy</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            value={chainApprovals}
+            onChange={(event) => setChainApprovals(event.target.value)}
+            placeholder="type:approver (csv)"
+          />
+          <Input value={chainReason} onChange={(event) => setChainReason(event.target.value)} placeholder="Reason" />
+          <Button onClick={addApprovalChain} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />Create approval chain</Button>
+        </CardContent>
+      </Card>
 
       <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
         <CardHeader>
