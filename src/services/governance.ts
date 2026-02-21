@@ -11,6 +11,12 @@ import {
 } from "../domain/types";
 
 const hasRole = (role: UserRole, roles: UserRole[]): boolean => roles.includes(role);
+type ApprovalRequestContext = {
+  estimatedCost?: number;
+  region?: string;
+  tags?: string[];
+  linkedObjectTypes?: string[];
+};
 
 export const maskObjectForActor = (
   object: GraphObject,
@@ -76,23 +82,18 @@ export const validateSod = (
   return { ok: true };
 };
 
-export const approvalsForRequest = (
+export const matchApprovalMatrixRules = (
   rules: ApprovalMatrixRule[],
   requestType: WorkItemType,
   riskLevel: RiskLevel,
-  context?: {
-    estimatedCost?: number;
-    region?: string;
-    tags?: string[];
-    linkedObjectTypes?: string[];
-  }
-): ApprovalType[] => {
+  context?: ApprovalRequestContext
+): ApprovalMatrixRule[] => {
   const normalizedRegion = String(context?.region ?? "").trim().toLowerCase();
   const normalizedTags = new Set((context?.tags ?? []).map((tag) => tag.trim().toLowerCase()));
   const normalizedObjectTypes = new Set((context?.linkedObjectTypes ?? []).map((value) => value.trim()));
   const estimatedCost = context?.estimatedCost;
 
-  const matched = rules.filter(
+  return rules.filter(
     (rule) =>
       rule.enabled &&
       rule.requestType === requestType &&
@@ -109,6 +110,15 @@ export const approvalsForRequest = (
         rule.linkedObjectTypes.length === 0 ||
         rule.linkedObjectTypes.some((type) => normalizedObjectTypes.has(type)))
   );
+};
+
+export const approvalsForRequest = (
+  rules: ApprovalMatrixRule[],
+  requestType: WorkItemType,
+  riskLevel: RiskLevel,
+  context?: ApprovalRequestContext
+): ApprovalType[] => {
+  const matched = matchApprovalMatrixRules(rules, requestType, riskLevel, context);
 
   if (matched.length === 0) {
     return ["manager"];

@@ -449,6 +449,15 @@ export const approvalMatrixRuleCreateSchema = z.object({
   enabled: z.boolean().default(true)
 });
 
+export const approvalMatrixSimulationSchema = z.object({
+  requestType: z.enum(workItemTypes),
+  riskLevel: z.enum(["low", "medium", "high"]),
+  estimatedCost: z.number().nonnegative().optional(),
+  region: z.string().optional(),
+  tags: z.array(z.string().min(1)).optional(),
+  linkedObjectTypes: z.array(z.enum(coreObjectTypes)).optional()
+});
+
 const catalogFormFieldSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),

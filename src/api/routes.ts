@@ -45,6 +45,7 @@ import {
   approvalExpirySchema,
   approvalChainCreateSchema,
   approvalMatrixRuleCreateSchema,
+  approvalMatrixSimulationSchema,
   aiPromptSchema,
   attachmentCreateSchema,
   approvalDelegationSchema,
@@ -114,7 +115,7 @@ import { buildEvidencePackage } from "../services/evidence";
 import { WorkflowEngine } from "../services/workflowEngine";
 import { evaluatePolicy } from "../services/policyEngine";
 import { computeSlaBreaches } from "../services/sla";
-import { approvalsForRequest, canWriteField, maskObjectForActor, validateSod } from "../services/governance";
+import { approvalsForRequest, canWriteField, maskObjectForActor, matchApprovalMatrixRules, validateSod } from "../services/governance";
 
 const roles: UserRole[] = [
   "end-user",
@@ -3850,6 +3851,39 @@ export const createRoutes = (store: ApexStore): Router => {
 
   router.get("/admin/rbac/approval-matrix", (_req, res) => {
     res.json({ data: [...store.approvalMatrixRules.values()] });
+  });
+
+  router.post("/admin/rbac/approval-matrix/simulate", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit") || can(actor.role, "approval:decide"));
+    const parsed = approvalMatrixSimulationSchema.parse(req.body);
+    const rules = [...store.approvalMatrixRules.values()];
+    const matched = matchApprovalMatrixRules(rules, parsed.requestType, parsed.riskLevel, {
+      estimatedCost: parsed.estimatedCost,
+      region: parsed.region,
+      tags: parsed.tags,
+      linkedObjectTypes: parsed.linkedObjectTypes
+    });
+    const approverTypes = matched.length === 0 ? ["manager"] : [...new Set(matched.flatMap((rule) => rule.approverTypes))];
+
+    res.json({
+      data: {
+        input: parsed,
+        fallbackUsed: matched.length === 0,
+        approverTypes,
+        matchedRules: matched.map((rule) => ({
+          id: rule.id,
+          name: rule.name,
+          requestType: rule.requestType,
+          riskLevel: rule.riskLevel,
+          costThreshold: rule.costThreshold,
+          regions: rule.regions ?? [],
+          requiredTags: rule.requiredTags ?? [],
+          linkedObjectTypes: rule.linkedObjectTypes ?? [],
+          approverTypes: rule.approverTypes
+        }))
+      }
+    });
   });
 
   router.post("/admin/rbac/approval-matrix", (req, res) => {

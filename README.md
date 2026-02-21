@@ -26,6 +26,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Requester response loop for info-requested approvals (`My Requests` -> respond -> approval reopens)
 - Approvals inbox now includes contextual risk/recommendation hints and Admin Studio supports manual approval chain creation
 - Approval matrix rules support conditional routing by region, required tags, linked object types, and cost threshold
+- Admin Studio includes approval matrix simulation previews (matched rules, final approvers, fallback behavior) before publish
 - Approval timeout lifecycle with expiry and escalation to fallback approver
 - Workflow engine with execution logs and exception item creation
 - Built-in playbook workflow definitions:
@@ -178,6 +179,7 @@ npm --prefix web run build
 - `GET/POST /v1/admin/rbac/field-restrictions`
 - `GET/POST /v1/admin/rbac/sod-rules`
 - `GET/POST /v1/admin/rbac/approval-matrix`
+- `POST /v1/admin/rbac/approval-matrix/simulate`
 - `POST /v1/admin/rbac/authorize`
 - `GET /v1/admin/policies/exceptions`, `POST /v1/admin/policies/exceptions/:id/action`
 

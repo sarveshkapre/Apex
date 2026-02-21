@@ -4,6 +4,7 @@ import {
   ApprovalInboxItem,
   ApprovalEscalationRunResult,
   ApprovalMatrixRule,
+  ApprovalMatrixSimulationResult,
   AiInsight,
   CatalogItem,
   CatalogPreviewResult,
@@ -1450,6 +1451,30 @@ export const createApprovalMatrixRule = async (payload: {
     },
     body: JSON.stringify(payload)
   });
+};
+
+export const simulateApprovalMatrixRule = async (payload: {
+  requestType: string;
+  riskLevel: "low" | "medium" | "high";
+  estimatedCost?: number;
+  region?: string;
+  tags?: string[];
+  linkedObjectTypes?: string[];
+}): Promise<ApprovalMatrixSimulationResult> => {
+  const response = await fetch(`${API_BASE}/admin/rbac/approval-matrix/simulate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Approval matrix simulation failed");
+  }
+  const json = (await response.json()) as ApiResponse<ApprovalMatrixSimulationResult>;
+  return json.data;
 };
 
 export const authorizeAction = async (action: string): Promise<{ actor: { id: string; role: string }; action: string; allowed: boolean }> => {

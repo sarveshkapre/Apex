@@ -695,6 +695,30 @@ export interface ApprovalMatrixRule {
   enabled: boolean;
 }
 
+export interface ApprovalMatrixSimulationResult {
+  input: {
+    requestType: string;
+    riskLevel: "low" | "medium" | "high";
+    estimatedCost?: number;
+    region?: string;
+    tags?: string[];
+    linkedObjectTypes?: string[];
+  };
+  fallbackUsed: boolean;
+  approverTypes: string[];
+  matchedRules: Array<{
+    id: string;
+    name: string;
+    requestType: string;
+    riskLevel: "low" | "medium" | "high";
+    costThreshold?: number;
+    regions: string[];
+    requiredTags: string[];
+    linkedObjectTypes: string[];
+    approverTypes: string[];
+  }>;
+}
+
 export interface SavedView {
   id: string;
   name: string;

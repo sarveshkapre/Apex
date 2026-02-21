@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ApprovalMatrixRule,
+  ApprovalMatrixSimulationResult,
   ConfigVersion,
   CustomObjectSchema,
   FieldRestriction,
@@ -32,6 +33,7 @@ import {
   listNotificationRules,
   listPolicies,
   listSodRules,
+  simulateApprovalMatrixRule,
   transitionConfigVersion
 } from "@/lib/apex";
 import { ImportWizard } from "@/components/operator/import-wizard";
@@ -90,6 +92,13 @@ export function AdminStudio({
   const [matrixRequiredTags, setMatrixRequiredTags] = React.useState("");
   const [matrixLinkedObjectTypes, setMatrixLinkedObjectTypes] = React.useState("");
   const [matrixApprovers, setMatrixApprovers] = React.useState("manager,security");
+  const [simulationRequestType, setSimulationRequestType] = React.useState("Request");
+  const [simulationRiskLevel, setSimulationRiskLevel] = React.useState<"low" | "medium" | "high">("medium");
+  const [simulationEstimatedCost, setSimulationEstimatedCost] = React.useState("");
+  const [simulationRegion, setSimulationRegion] = React.useState("");
+  const [simulationTags, setSimulationTags] = React.useState("");
+  const [simulationLinkedObjectTypes, setSimulationLinkedObjectTypes] = React.useState("");
+  const [simulationResult, setSimulationResult] = React.useState<ApprovalMatrixSimulationResult | null>(null);
 
   const [chainWorkItemId, setChainWorkItemId] = React.useState("");
   const [chainMode, setChainMode] = React.useState<"all" | "any">("all");
@@ -216,6 +225,29 @@ export function AdminStudio({
     });
     setStatus(response.ok ? "Approval matrix rule added." : "Failed to add approval matrix rule.");
     await refresh();
+  };
+
+  const runApprovalMatrixSimulation = async () => {
+    try {
+      const parsedCost = simulationEstimatedCost.trim();
+      const result = await simulateApprovalMatrixRule({
+        requestType: simulationRequestType,
+        riskLevel: simulationRiskLevel,
+        estimatedCost: parsedCost ? Number(parsedCost) : undefined,
+        region: simulationRegion.trim() || undefined,
+        tags: parseCsv(simulationTags),
+        linkedObjectTypes: parseCsv(simulationLinkedObjectTypes)
+      });
+      setSimulationResult(result);
+      setStatus(
+        result.fallbackUsed
+          ? `Simulation used fallback approvers: ${result.approverTypes.join(", ")}.`
+          : `Simulation matched ${result.matchedRules.length} rule(s): ${result.approverTypes.join(", ")}.`
+      );
+    } catch {
+      setSimulationResult(null);
+      setStatus("Approval matrix simulation failed.");
+    }
   };
 
   const addApprovalChain = async () => {
@@ -365,6 +397,55 @@ export function AdminStudio({
             />
             <Input value={matrixApprovers} onChange={(event) => setMatrixApprovers(event.target.value)} placeholder="Approver types (csv)" />
             <Button onClick={addApprovalMatrixRule} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />Add matrix rule</Button>
+            <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3">
+              <p className="text-xs font-medium text-zinc-700">Simulate routing before publish</p>
+              <Select value={simulationRequestType} onValueChange={setSimulationRequestType}>
+                <SelectTrigger><SelectValue placeholder="Request type" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Request">Request</SelectItem>
+                  <SelectItem value="Change">Change</SelectItem>
+                  <SelectItem value="Task">Task</SelectItem>
+                  <SelectItem value="Incident">Incident</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={simulationRiskLevel} onValueChange={(value) => setSimulationRiskLevel(value as "low" | "medium" | "high")}>
+                <SelectTrigger><SelectValue placeholder="Risk level" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                value={simulationEstimatedCost}
+                onChange={(event) => setSimulationEstimatedCost(event.target.value)}
+                placeholder="Estimated cost (optional)"
+                type="number"
+              />
+              <Input value={simulationRegion} onChange={(event) => setSimulationRegion(event.target.value)} placeholder="Region (optional)" />
+              <Input value={simulationTags} onChange={(event) => setSimulationTags(event.target.value)} placeholder="Tags (csv, optional)" />
+              <Input
+                value={simulationLinkedObjectTypes}
+                onChange={(event) => setSimulationLinkedObjectTypes(event.target.value)}
+                placeholder="Linked object types (csv, optional)"
+              />
+              <Button variant="outline" onClick={runApprovalMatrixSimulation} className="rounded-xl">
+                Simulate matrix routing
+              </Button>
+              {simulationResult ? (
+                <div className="space-y-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-xs text-zinc-600">
+                  <p>
+                    Result: {simulationResult.fallbackUsed ? "fallback to manager" : "rule match"} • Approvers:{" "}
+                    {simulationResult.approverTypes.join(", ")}
+                  </p>
+                  {simulationResult.matchedRules.map((rule) => (
+                    <p key={rule.id}>
+                      {rule.name} • {rule.requestType}/{rule.riskLevel} • {rule.approverTypes.join(", ")}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <div className="space-y-1 text-xs text-zinc-600">
               {approvalMatrix.map((rule) => (
                 <p key={rule.id} className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5">

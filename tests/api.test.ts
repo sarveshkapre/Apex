@@ -833,6 +833,62 @@ describe("Apex API", () => {
     expect(unmatchedTypes).not.toContain("security");
   });
 
+  it("simulates approval matrix routing and falls back when no rule matches", async () => {
+    const { app } = createApp();
+
+    const addRule = await request(app)
+      .post("/v1/admin/rbac/approval-matrix")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        name: "EU high-cost device routing",
+        requestType: "Request",
+        riskLevel: "medium",
+        costThreshold: 1000,
+        regions: ["eu"],
+        requiredTags: ["devices"],
+        linkedObjectTypes: ["Device"],
+        approverTypes: ["finance", "security"],
+        enabled: true
+      });
+    expect(addRule.status).toBe(201);
+
+    const matched = await request(app)
+      .post("/v1/admin/rbac/approval-matrix/simulate")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        requestType: "Request",
+        riskLevel: "medium",
+        estimatedCost: 1500,
+        region: "eu",
+        tags: ["devices", "laptop"],
+        linkedObjectTypes: ["Device"]
+      });
+    expect(matched.status).toBe(200);
+    expect(matched.body.data.fallbackUsed).toBe(false);
+    expect(matched.body.data.approverTypes).toContain("finance");
+    expect(matched.body.data.approverTypes).toContain("security");
+    expect(matched.body.data.matchedRules.length).toBeGreaterThanOrEqual(1);
+
+    const fallback = await request(app)
+      .post("/v1/admin/rbac/approval-matrix/simulate")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        requestType: "Incident",
+        riskLevel: "high",
+        estimatedCost: 200,
+        region: "us",
+        tags: ["software"],
+        linkedObjectTypes: ["SaaSAccount"]
+      });
+    expect(fallback.status).toBe(200);
+    expect(fallback.body.data.fallbackUsed).toBe(true);
+    expect(fallback.body.data.approverTypes).toEqual(["manager"]);
+    expect(fallback.body.data.matchedRules).toEqual([]);
+  });
+
   it("supports request-info approval decision and sets work item to Waiting", async () => {
     const { app } = createApp();
 
