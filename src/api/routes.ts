@@ -52,6 +52,7 @@ import {
   configVersionPublishSchema,
   connectorCreateSchema,
   connectorRunSchema,
+  deviceAcknowledgementSchema,
   csvPreviewSchema,
   customSchemaCreateSchema,
   exceptionActionSchema,
@@ -1589,6 +1590,61 @@ export const createRoutes = (store: ApexStore): Router => {
         followUpTasks,
         actionPlan,
         evidenceHint: `Use /v1/evidence/${incident.id} after resolution for full package export.`
+      }
+    });
+  });
+
+  router.post("/devices/:id/acknowledgements", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = deviceAcknowledgementSchema.parse(req.body);
+    const device = store.objects.get(req.params.id);
+    if (!device || device.type !== "Device") {
+      res.status(404).json({ error: "Device not found" });
+      return;
+    }
+
+    const now = nowIso();
+    if (parsed.type === "receipt") {
+      device.fields.receipt_acknowledged_at = now;
+      device.fields.receipt_acknowledged_by = parsed.acknowledgedBy;
+      device.fields.custody_status = "active";
+    } else {
+      device.fields.return_shipment_acknowledged_at = now;
+      device.fields.return_shipment_acknowledged_by = parsed.acknowledgedBy;
+      device.fields.return_status = "in-transit";
+    }
+    if (parsed.note) {
+      device.fields.last_acknowledgement_note = parsed.note;
+    }
+    device.updatedAt = now;
+    store.objects.set(device.id, device);
+
+    store.pushTimeline({
+      tenantId: device.tenantId,
+      workspaceId: device.workspaceId,
+      entityType: "object",
+      entityId: device.id,
+      eventType: "object.updated",
+      actor: actor.id,
+      reason: `device-acknowledgement:${parsed.type}`,
+      createdAt: now,
+      payload: {
+        type: parsed.type,
+        acknowledgedBy: parsed.acknowledgedBy,
+        note: parsed.note
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        device,
+        acknowledgement: {
+          type: parsed.type,
+          acknowledgedBy: parsed.acknowledgedBy,
+          note: parsed.note,
+          acknowledgedAt: now
+        }
       }
     });
   });

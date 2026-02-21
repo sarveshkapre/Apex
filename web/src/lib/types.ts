@@ -93,6 +93,16 @@ export interface LostStolenReportResult {
   evidenceHint: string;
 }
 
+export interface DeviceAcknowledgementResult {
+  device: GraphObject;
+  acknowledgement: {
+    type: "receipt" | "return-shipment";
+    acknowledgedBy: string;
+    note?: string;
+    acknowledgedAt: string;
+  };
+}
+
 export type WorkItemBulkAction = "assign" | "priority" | "tag" | "comment" | "workflow-step" | "export";
 
 export interface WorkItemBulkResult {

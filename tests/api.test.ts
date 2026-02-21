@@ -381,6 +381,46 @@ describe("Apex API", () => {
     expect(reported.body.data.actionPlan.every((step: { requiresApproval: boolean }) => !step.requiresApproval)).toBe(true);
   });
 
+  it("records device receipt and return-shipment acknowledgements", async () => {
+    const { app } = createApp();
+
+    const devices = await request(app).get("/v1/objects").query({ type: "Device" });
+    expect(devices.status).toBe(200);
+    const deviceId = devices.body.data[0].id as string;
+
+    const receipt = await request(app)
+      .post(`/v1/devices/${deviceId}/acknowledgements`)
+      .set("x-actor-id", "portal-user-1")
+      .set("x-actor-role", "end-user")
+      .send({
+        type: "receipt",
+        acknowledgedBy: "person-1",
+        note: "Received package and completed setup."
+      });
+    expect(receipt.status).toBe(201);
+    expect(receipt.body.data.acknowledgement.type).toBe("receipt");
+    expect(receipt.body.data.device.fields.receipt_acknowledged_by).toBe("person-1");
+
+    const returnAck = await request(app)
+      .post(`/v1/devices/${deviceId}/acknowledgements`)
+      .set("x-actor-id", "portal-user-1")
+      .set("x-actor-role", "end-user")
+      .send({
+        type: "return-shipment",
+        acknowledgedBy: "person-1",
+        note: "Return kit dropped off with courier."
+      });
+    expect(returnAck.status).toBe(201);
+    expect(returnAck.body.data.acknowledgement.type).toBe("return-shipment");
+    expect(returnAck.body.data.device.fields.return_shipment_acknowledged_by).toBe("person-1");
+
+    const timeline = await request(app).get(`/v1/timeline/${deviceId}`);
+    expect(timeline.status).toBe(200);
+    expect(
+      timeline.body.data.filter((event: { reason?: string }) => String(event.reason ?? "").startsWith("device-acknowledgement")).length
+    ).toBeGreaterThanOrEqual(2);
+  });
+
   it("adds comment and attachment to a work item", async () => {
     const { app } = createApp();
 

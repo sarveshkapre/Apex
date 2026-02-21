@@ -1,3 +1,4 @@
+import { DeviceAckActions } from "@/components/portal/device-ack-actions";
 import { PageHeader } from "@/components/app/page-header";
 import { LinkedRequestActions } from "@/components/portal/linked-request-actions";
 import { LostStolenReportDialog } from "@/components/portal/lost-stolen-report-dialog";
@@ -70,6 +71,7 @@ export default async function AssetsPage() {
                 deviceId={device.id}
                 assetLabel={String(device.fields.asset_tag ?? device.fields.model ?? device.id)}
               />
+              <DeviceAckActions deviceId={device.id} />
             </CardContent>
           </Card>
         ))}

@@ -14,6 +14,7 @@ import {
   ContractRenewalRun,
   CustomObjectSchema,
   DashboardKpis,
+  DeviceAcknowledgementResult,
   EvidencePackage,
   ExternalTicketLink,
   ExternalTicketComment,
@@ -295,6 +296,32 @@ export const reportDeviceLostStolen = async (payload: {
     throw new Error("Failed to report lost/stolen device");
   }
   const json = (await response.json()) as ApiResponse<LostStolenReportResult>;
+  return json.data;
+};
+
+export const acknowledgeDeviceCustody = async (payload: {
+  deviceId: string;
+  type: "receipt" | "return-shipment";
+  acknowledgedBy: string;
+  note?: string;
+}): Promise<DeviceAcknowledgementResult> => {
+  const response = await fetch(`${API_BASE}/devices/${payload.deviceId}/acknowledgements`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "portal-user-1",
+      "x-actor-role": "end-user"
+    },
+    body: JSON.stringify({
+      type: payload.type,
+      acknowledgedBy: payload.acknowledgedBy,
+      note: payload.note
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to acknowledge device custody");
+  }
+  const json = (await response.json()) as ApiResponse<DeviceAcknowledgementResult>;
   return json.data;
 };
 

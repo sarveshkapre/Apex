@@ -69,6 +69,12 @@ export const lostStolenReportSchema = z.object({
   createCredentialRotationTask: z.boolean().default(true)
 });
 
+export const deviceAcknowledgementSchema = z.object({
+  type: z.enum(["receipt", "return-shipment"]),
+  acknowledgedBy: z.string().min(1),
+  note: z.string().optional()
+});
+
 export const signalIngestSchema = z.object({
   tenantId: z.string().min(1),
   workspaceId: z.string().min(1),
