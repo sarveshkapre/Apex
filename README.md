@@ -1,8 +1,14 @@
-# Apex (P0 Foundation)
+# Apex (AI-native IT Control Plane)
 
-This repository contains a runnable P0 backend foundation for an AI-native IT control plane based on your PRD.
+This repository now ships a full-stack implementation baseline for Apex:
 
-## What is implemented
+- Backend control-plane API (`/v1`) with asset graph, workflows, approvals, reconciliation, quality, evidence, and AI-safe planning endpoints
+- Next.js frontend (`/web`) with required product surfaces:
+  - End-User Portal
+  - Operator Console
+  - Global Command / Copilot UI
+
+## Implemented capabilities
 
 - Asset Graph core object + relationship APIs
 - Immutable timeline events for object/workflow/approval changes
@@ -20,20 +26,46 @@ This repository contains a runnable P0 backend foundation for an AI-native IT co
 - AI endpoints for:
   - graph query (`/v1/ai/query`)
   - plan preview (`/v1/ai/plan-preview`)
+  - request draft (`/v1/ai/request-draft`)
+  - reconciliation suggestions (`/v1/ai/reconciliation-suggestions`)
+- Additional UX-facing APIs:
+  - integration health (`/v1/integrations/health`)
+  - knowledge base (`/v1/kb/articles`)
+  - dashboards (`/v1/dashboards/:name`)
+  - catalog items (`/v1/catalog/items`)
+  - global search (`/v1/search`)
+
+## Frontend surfaces (`web`)
+
+- `/portal` Home, My Assets, My Access, My Requests, Help/KB, Chat/Command
+- `/operator` Overview, Queue Center, Asset Graph, Workflows, Policies, Integrations, Reports, Admin Studio
+- Shared command palette with keyboard shortcut (`Cmd/Ctrl + K`)
+- Role-aware nav shell and modern minimalist UI built with Next.js + Tailwind + shadcn
 
 ## Run
 
 ```bash
 npm install
-npm run dev
+npm run dev:all
 ```
 
-API base URL: `http://localhost:4000/v1`
+- Backend API: `http://localhost:4000/v1`
+- Frontend app: `http://localhost:3000`
+
+You can also run services independently:
+
+```bash
+npm run dev:api
+npm run dev:web
+```
 
 ## Test
 
 ```bash
 npm test
+npm run build
+npm --prefix web run lint
+npm --prefix web run build
 ```
 
 ## Core API endpoints
