@@ -618,6 +618,52 @@ export interface SaasReclaimRun {
   candidates: SaasReclaimRunCandidate[];
 }
 
+export interface CloudTagGovernanceRunRemediation {
+  resourceId: string;
+  autoTagged: string[];
+  unresolved: string[];
+  decisions: Array<{
+    tag: string;
+    value?: string;
+    confidence: number;
+    source: string;
+    decision: "auto-tag" | "approval-required" | "unresolved";
+  }>;
+  approvalRequired: Array<{
+    tag: string;
+    value: string;
+    confidence: number;
+    source: string;
+  }>;
+  approvalId?: string;
+  approvalWorkItemId?: string;
+  exceptionId?: string;
+  appliedTags?: string[];
+  appliedAt?: string;
+}
+
+export interface CloudTagGovernanceRun {
+  id: string;
+  mode: "dry-run" | "live";
+  status: "dry-run-complete" | "pending-approvals" | "applied" | "partial";
+  actorId: string;
+  requiredTags: string[];
+  autoTagMinConfidence: number;
+  approvalGatedConfidenceFloor: number;
+  requireApprovalForMediumConfidence: boolean;
+  resourcesEvaluated: number;
+  autoTaggedResources: number;
+  approvalsCreated: number;
+  approvalWorkItemsCreated: number;
+  exceptionsCreated: number;
+  appliedResources: number;
+  pendingApprovalResources: number;
+  rejectedApprovalResources: number;
+  remediations: CloudTagGovernanceRunRemediation[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ContractRenewalCandidate {
   contractObjectId: string;
   vendorName: string;

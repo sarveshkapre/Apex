@@ -3,6 +3,7 @@ import {
   ActionExecutionLog,
   ApprovalRecord,
   ConfigVersion,
+  CloudTagGovernanceRun,
   ConnectorConfig,
   ConnectorRun,
   ContractRenewalRun,
@@ -65,6 +66,7 @@ export class ApexStore {
   saasReclaimPolicies = new Map<string, SaasReclaimPolicy>();
   saasReclaimRuns = new Map<string, SaasReclaimRun>();
   contractRenewalRuns = new Map<string, ContractRenewalRun>();
+  cloudTagGovernanceRuns = new Map<string, CloudTagGovernanceRun>();
   reportDefinitions = new Map<string, ReportDefinition>();
   reportRuns = new Map<string, ReportRun>();
   sandboxRuns = new Map<string, SandboxRun>();

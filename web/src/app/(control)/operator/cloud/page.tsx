@@ -1,10 +1,10 @@
 import { MetricCard } from "@/components/app/metric-card";
 import { PageHeader } from "@/components/app/page-header";
 import { CloudGovernance } from "@/components/operator/cloud-governance";
-import { getCloudTagCoverage } from "@/lib/apex";
+import { getCloudTagCoverage, listCloudTagRuns } from "@/lib/apex";
 
 export default async function CloudGovernancePage() {
-  const coverage = await getCloudTagCoverage();
+  const [coverage, runs] = await Promise.all([getCloudTagCoverage(), listCloudTagRuns()]);
 
   return (
     <div className="space-y-4">
@@ -23,7 +23,7 @@ export default async function CloudGovernancePage() {
         <MetricCard title="Approval Needed" value={coverage.approvalRequiredResources} helper="Medium-confidence candidates" />
       </section>
 
-      <CloudGovernance initialCoverage={coverage} />
+      <CloudGovernance initialCoverage={coverage} initialRuns={runs} />
     </div>
   );
 }

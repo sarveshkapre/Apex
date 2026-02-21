@@ -11,6 +11,7 @@ import {
   CatalogSubmitResult,
   CloudTagCoverage,
   CloudTagEnforcementResult,
+  CloudTagGovernanceRun,
   ConfigVersion,
   ConfigVersionReadiness,
   ConnectorConfig,
@@ -1763,6 +1764,34 @@ export const enforceCloudTags = async (payload: {
     throw new Error("Failed to enforce cloud tags");
   }
   const json = (await response.json()) as ApiResponse<CloudTagEnforcementResult>;
+  return json.data;
+};
+
+export const listCloudTagRuns = async (params?: {
+  mode?: "dry-run" | "live";
+  status?: "dry-run-complete" | "pending-approvals" | "applied" | "partial";
+}): Promise<CloudTagGovernanceRun[]> => {
+  const query = new URLSearchParams();
+  if (params?.mode) query.set("mode", params.mode);
+  if (params?.status) query.set("status", params.status);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return safe(() => get<CloudTagGovernanceRun[]>(`/cloud/tag-governance/runs${suffix}`), []);
+};
+
+export const applyCloudTagRun = async (runId: string): Promise<CloudTagGovernanceRun> => {
+  const response = await fetch(`${API_BASE}/cloud/tag-governance/runs/${runId}/apply`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({})
+  });
+  if (!response.ok) {
+    throw new Error("Failed to apply cloud governance run");
+  }
+  const json = (await response.json()) as ApiResponse<CloudTagGovernanceRun>;
   return json.data;
 };
 

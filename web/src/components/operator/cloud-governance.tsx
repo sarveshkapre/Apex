@@ -7,15 +7,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { enforceCloudTags, getCloudTagCoverage } from "@/lib/apex";
-import { CloudTagCoverage, CloudTagEnforcementResult } from "@/lib/types";
+import { applyCloudTagRun, enforceCloudTags, getCloudTagCoverage, listCloudTagRuns } from "@/lib/apex";
+import { CloudTagCoverage, CloudTagEnforcementResult, CloudTagGovernanceRun } from "@/lib/types";
 
 type Props = {
   initialCoverage: CloudTagCoverage;
+  initialRuns: CloudTagGovernanceRun[];
 };
 
-export function CloudGovernance({ initialCoverage }: Props) {
+export function CloudGovernance({ initialCoverage, initialRuns }: Props) {
   const [coverage, setCoverage] = React.useState(initialCoverage);
+  const [runs, setRuns] = React.useState(initialRuns);
   const [tagInput, setTagInput] = React.useState(initialCoverage.requiredTags.join(","));
   const [autoTag, setAutoTag] = React.useState(true);
   const [autoTagMinConfidence, setAutoTagMinConfidence] = React.useState("0.8");
@@ -41,6 +43,11 @@ export function CloudGovernance({ initialCoverage }: Props) {
     setStatus(`Coverage refreshed (${updated.coveragePercent}%).`);
   };
 
+  const refreshRuns = async () => {
+    const updated = await listCloudTagRuns();
+    setRuns(updated);
+  };
+
   const runEnforcement = async (dryRun: boolean) => {
     try {
       const minConfidenceValue = Number(autoTagMinConfidence);
@@ -62,8 +69,20 @@ export function CloudGovernance({ initialCoverage }: Props) {
           : `Live run: ${result.autoTaggedResources} auto-tagged, ${result.approvalsCreated} approval(s) created, ${result.exceptionsCreated} exceptions.`
       );
       await refreshCoverage();
+      await refreshRuns();
     } catch {
       setStatus("Cloud tag enforcement failed.");
+    }
+  };
+
+  const applyRun = async (runId: string) => {
+    try {
+      const run = await applyCloudTagRun(runId);
+      setStatus(`Applied run ${run.id.slice(0, 8)}: status ${run.status}, applied ${run.appliedResources} resource(s).`);
+      await refreshCoverage();
+      await refreshRuns();
+    } catch {
+      setStatus("Cloud remediation apply failed.");
     }
   };
 
@@ -191,6 +210,34 @@ export function CloudGovernance({ initialCoverage }: Props) {
           </CardContent>
         </Card>
       ) : null}
+
+      <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
+        <CardHeader>
+          <CardTitle className="text-base">Governance runs ({runs.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-zinc-600">
+          {runs.length === 0 ? <p>No cloud governance runs yet.</p> : null}
+          {runs.slice(0, 8).map((run) => (
+            <div key={run.id} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+              <p className="font-medium text-zinc-900">{run.mode} • {run.status}</p>
+              <p className="text-xs text-zinc-500">
+                {run.id.slice(0, 8)} • applied {run.appliedResources} • pending {run.pendingApprovalResources} • rejected {run.rejectedApprovalResources}
+              </p>
+              <div className="mt-1.5 flex gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-md"
+                  onClick={() => applyRun(run.id)}
+                  disabled={!(run.mode === "live" && (run.status === "pending-approvals" || run.status === "partial"))}
+                >
+                  Apply approved remediations
+                </Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 }

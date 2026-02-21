@@ -4,6 +4,7 @@ import {
   ApiActor,
   ApprovalMatrixRule,
   CatalogItemDefinition,
+  CloudTagGovernanceRun,
   ConfigVersion,
   ConfigVersionReadiness,
   ConnectorConfig,
@@ -283,6 +284,24 @@ const decideCloudTagSuggestion = (
     return { ...candidate, decision: "approval-required" };
   }
   return { ...candidate, decision: "unresolved" };
+};
+
+const summarizeCloudTagRunStatus = (
+  mode: "dry-run" | "live",
+  pendingApprovalResources: number,
+  appliedResources: number,
+  rejectedApprovalResources: number
+): CloudTagGovernanceRun["status"] => {
+  if (mode === "dry-run") {
+    return "dry-run-complete";
+  }
+  if (pendingApprovalResources > 0) {
+    return "pending-approvals";
+  }
+  if (rejectedApprovalResources > 0 && appliedResources === 0) {
+    return "partial";
+  }
+  return "applied";
 };
 
 const buildWorkflowSimulationPlan = (definition: { steps: Array<{ id: string; name: string; type: string; riskLevel: "low" | "medium" | "high" }> }) =>
@@ -2740,6 +2759,8 @@ export const createRoutes = (store: ApexStore): Router => {
       approvalId?: string;
       approvalWorkItemId?: string;
       exceptionId?: string;
+      appliedTags?: string[];
+      appliedAt?: string;
     }> = [];
     let autoTaggedCount = 0;
     let exceptionsCreated = 0;
@@ -2902,9 +2923,38 @@ export const createRoutes = (store: ApexStore): Router => {
       });
     }
 
+    const mode = parsed.dryRun ? "dry-run" : "live";
+    const pendingApprovalResources = remediations.filter((item) => item.approvalRequired.length > 0).length;
+    const appliedResources = parsed.dryRun ? 0 : autoTaggedCount;
+    const rejectedApprovalResources = 0;
+    const run: CloudTagGovernanceRun = {
+      id: store.createId(),
+      mode,
+      status: summarizeCloudTagRunStatus(mode, pendingApprovalResources, appliedResources, rejectedApprovalResources),
+      actorId: actor.id,
+      requiredTags,
+      autoTagMinConfidence: parsed.autoTagMinConfidence,
+      approvalGatedConfidenceFloor: parsed.approvalGatedConfidenceFloor,
+      requireApprovalForMediumConfidence: parsed.requireApprovalForMediumConfidence,
+      resourcesEvaluated: resources.length,
+      autoTaggedResources: autoTaggedCount,
+      approvalsCreated,
+      approvalWorkItemsCreated,
+      exceptionsCreated,
+      appliedResources,
+      pendingApprovalResources,
+      rejectedApprovalResources,
+      remediations,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.cloudTagGovernanceRuns.set(run.id, run);
+
     res.json({
       data: {
-        mode: parsed.dryRun ? "dry-run" : "live",
+        runId: run.id,
+        runStatus: run.status,
+        mode,
         requiredTags,
         autoTagMinConfidence: parsed.autoTagMinConfidence,
         approvalGatedConfidenceFloor: parsed.approvalGatedConfidenceFloor,
@@ -2913,8 +2963,134 @@ export const createRoutes = (store: ApexStore): Router => {
         autoTaggedResources: autoTaggedCount,
         approvalsCreated,
         approvalWorkItemsCreated,
+        appliedResources,
+        pendingApprovalResources,
+        rejectedApprovalResources,
         exceptionsCreated,
         remediations
+      }
+    });
+  });
+
+  router.get("/cloud/tag-governance/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run") || can(actor.role, "object:view"));
+    const mode = req.query.mode ? String(req.query.mode) : undefined;
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const data = [...store.cloudTagGovernanceRuns.values()]
+      .filter((run) => (mode ? run.mode === mode : true))
+      .filter((run) => (status ? run.status === status : true))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    res.json({ data });
+  });
+
+  router.post("/cloud/tag-governance/runs/:id/apply", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const run = store.cloudTagGovernanceRuns.get(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: "Cloud governance run not found" });
+      return;
+    }
+    if (run.mode === "dry-run") {
+      res.status(409).json({ error: "Cannot apply a dry-run cloud governance result" });
+      return;
+    }
+
+    let appliedDelta = 0;
+    let pendingApprovalResources = 0;
+    let rejectedApprovalResources = 0;
+
+    for (const remediation of run.remediations) {
+      if (!remediation.approvalRequired.length) {
+        continue;
+      }
+      const approval = remediation.approvalId ? store.approvals.get(remediation.approvalId) : undefined;
+      if (!approval || approval.decision === "pending" || approval.decision === "info-requested") {
+        pendingApprovalResources += 1;
+        continue;
+      }
+      if (approval.decision === "rejected" || approval.decision === "expired") {
+        rejectedApprovalResources += 1;
+        continue;
+      }
+      if (approval.decision !== "approved") {
+        continue;
+      }
+
+      const resource = store.objects.get(remediation.resourceId);
+      if (!resource || resource.type !== "CloudResource") {
+        continue;
+      }
+
+      const tags = parseResourceTags(resource.fields.tags);
+      const appliedTags: string[] = [];
+      for (const proposal of remediation.approvalRequired) {
+        const current = String(tags[proposal.tag] ?? "").trim();
+        if (current.length === 0) {
+          tags[proposal.tag] = proposal.value;
+          appliedTags.push(proposal.tag);
+        }
+      }
+
+      if (appliedTags.length > 0) {
+        resource.fields = { ...resource.fields, tags };
+        resource.updatedAt = nowIso();
+        store.objects.set(resource.id, resource);
+        remediation.appliedTags = [...new Set([...(remediation.appliedTags ?? []), ...appliedTags])];
+        remediation.appliedAt = nowIso();
+        remediation.autoTagged = [...new Set([...remediation.autoTagged, ...appliedTags])];
+        appliedDelta += 1;
+
+        store.pushTimeline({
+          tenantId: resource.tenantId,
+          workspaceId: resource.workspaceId,
+          entityType: "object",
+          entityId: resource.id,
+          eventType: "object.updated",
+          actor: actor.id,
+          createdAt: nowIso(),
+          payload: {
+            cloudTagGovernanceApply: true,
+            runId: run.id,
+            approvalId: approval.id,
+            appliedTags
+          }
+        });
+      }
+
+      if (remediation.approvalWorkItemId) {
+        const workItem = store.workItems.get(remediation.approvalWorkItemId);
+        if (workItem) {
+          workItem.status = "Completed";
+          workItem.comments.push({
+            id: store.createId(),
+            authorId: actor.id,
+            body: `Cloud remediation applied after approval ${approval.id}.`,
+            mentions: [],
+            createdAt: nowIso()
+          });
+          workItem.updatedAt = nowIso();
+          store.workItems.set(workItem.id, workItem);
+        }
+      }
+    }
+
+    run.appliedResources += appliedDelta;
+    run.pendingApprovalResources = pendingApprovalResources;
+    run.rejectedApprovalResources = rejectedApprovalResources;
+    run.status = summarizeCloudTagRunStatus(run.mode, pendingApprovalResources, run.appliedResources, rejectedApprovalResources);
+    run.updatedAt = nowIso();
+    store.cloudTagGovernanceRuns.set(run.id, run);
+
+    res.json({
+      data: {
+        ...run,
+        applySummary: {
+          appliedDelta,
+          pendingApprovalResources,
+          rejectedApprovalResources
+        }
       }
     });
   });

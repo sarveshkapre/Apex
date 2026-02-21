@@ -1480,6 +1480,92 @@ describe("Apex API", () => {
     expect(change.status).toBe("Waiting");
   });
 
+  it("applies approved cloud remediation runs and updates resource tags", async () => {
+    const { app } = createApp();
+
+    const customCloud = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "CloudResource",
+        fields: {
+          provider: "AWS",
+          resource_type: "ec2.instance",
+          name: "dev-runner-01",
+          region: "us-east-1",
+          team_owner: "cloud-platform",
+          tags: {}
+        }
+      });
+    expect(customCloud.status).toBe(201);
+    const resourceId = customCloud.body.data.id as string;
+
+    const run = await request(app)
+      .post("/v1/cloud/tag-governance/enforce")
+      .set("x-actor-id", "operator-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        requiredTags: ["owner"],
+        dryRun: false,
+        autoTag: true,
+        autoTagMinConfidence: 0.9,
+        approvalGatedConfidenceFloor: 0.6,
+        requireApprovalForMediumConfidence: true,
+        approvalType: "security",
+        approvalAssigneeId: "security-approver"
+      });
+    expect(run.status).toBe(200);
+    expect(run.body.data.runId).toBeTruthy();
+
+    const remediation = run.body.data.remediations.find(
+      (item: { resourceId: string; approvalId?: string; approvalWorkItemId?: string }) =>
+        item.resourceId === resourceId && item.approvalId && item.approvalWorkItemId
+    );
+    expect(remediation).toBeTruthy();
+    if (!remediation) {
+      throw new Error("Expected approval remediation for custom cloud resource");
+    }
+
+    const approve = await request(app)
+      .post(`/v1/approvals/${remediation.approvalId}/decision`)
+      .set("x-actor-id", "security-approver")
+      .set("x-actor-role", "it-admin")
+      .send({ decision: "approved" });
+    expect(approve.status).toBe(200);
+
+    const applied = await request(app)
+      .post(`/v1/cloud/tag-governance/runs/${run.body.data.runId}/apply`)
+      .set("x-actor-id", "operator-1")
+      .set("x-actor-role", "it-agent")
+      .send({});
+    expect(applied.status).toBe(200);
+    expect(["applied", "partial"]).toContain(applied.body.data.status);
+    expect(applied.body.data.appliedResources).toBeGreaterThan(0);
+    expect(applied.body.data.applySummary.appliedDelta).toBeGreaterThan(0);
+
+    const resource = await request(app)
+      .get(`/v1/objects/${resourceId}`)
+      .set("x-actor-id", "operator-1")
+      .set("x-actor-role", "it-agent");
+    expect(resource.status).toBe(200);
+    expect(resource.body.data.fields.tags.owner).toBe("cloud-platform");
+
+    const workItems = await request(app).get("/v1/work-items");
+    const approvalChange = workItems.body.data.find((item: { id: string }) => item.id === remediation.approvalWorkItemId);
+    expect(approvalChange).toBeTruthy();
+    expect(approvalChange.status).toBe("Completed");
+
+    const runs = await request(app)
+      .get("/v1/cloud/tag-governance/runs")
+      .set("x-actor-id", "operator-1")
+      .set("x-actor-role", "it-agent");
+    expect(runs.status).toBe(200);
+    expect(runs.body.data.some((item: { id: string }) => item.id === run.body.data.runId)).toBe(true);
+  });
+
   it("returns 404 when evidence export target work item does not exist", async () => {
     const { app } = createApp();
     const response = await request(app)

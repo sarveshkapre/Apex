@@ -856,6 +856,8 @@ export interface CloudTagCoverage {
 }
 
 export interface CloudTagEnforcementResult {
+  runId: string;
+  runStatus: "dry-run-complete" | "pending-approvals" | "applied" | "partial";
   mode: "dry-run" | "live";
   requiredTags: string[];
   autoTagMinConfidence: number;
@@ -865,6 +867,9 @@ export interface CloudTagEnforcementResult {
   autoTaggedResources: number;
   approvalsCreated: number;
   approvalWorkItemsCreated: number;
+  appliedResources: number;
+  pendingApprovalResources: number;
+  rejectedApprovalResources: number;
   exceptionsCreated: number;
   remediations: Array<{
     resourceId: string;
@@ -887,6 +892,28 @@ export interface CloudTagEnforcementResult {
     approvalWorkItemId?: string;
     exceptionId?: string;
   }>;
+}
+
+export interface CloudTagGovernanceRun {
+  id: string;
+  mode: "dry-run" | "live";
+  status: "dry-run-complete" | "pending-approvals" | "applied" | "partial";
+  actorId: string;
+  requiredTags: string[];
+  autoTagMinConfidence: number;
+  approvalGatedConfidenceFloor: number;
+  requireApprovalForMediumConfidence: boolean;
+  resourcesEvaluated: number;
+  autoTaggedResources: number;
+  approvalsCreated: number;
+  approvalWorkItemsCreated: number;
+  exceptionsCreated: number;
+  appliedResources: number;
+  pendingApprovalResources: number;
+  rejectedApprovalResources: number;
+  remediations: CloudTagEnforcementResult["remediations"];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SaasReclaimPolicy {
