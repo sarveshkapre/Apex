@@ -80,14 +80,34 @@ export const approvalsForRequest = (
   rules: ApprovalMatrixRule[],
   requestType: WorkItemType,
   riskLevel: RiskLevel,
-  estimatedCost?: number
+  context?: {
+    estimatedCost?: number;
+    region?: string;
+    tags?: string[];
+    linkedObjectTypes?: string[];
+  }
 ): ApprovalType[] => {
+  const normalizedRegion = String(context?.region ?? "").trim().toLowerCase();
+  const normalizedTags = new Set((context?.tags ?? []).map((tag) => tag.trim().toLowerCase()));
+  const normalizedObjectTypes = new Set((context?.linkedObjectTypes ?? []).map((value) => value.trim()));
+  const estimatedCost = context?.estimatedCost;
+
   const matched = rules.filter(
     (rule) =>
       rule.enabled &&
       rule.requestType === requestType &&
       rule.riskLevel === riskLevel &&
-      (rule.costThreshold === undefined || (estimatedCost ?? 0) >= rule.costThreshold)
+      (rule.costThreshold === undefined || (estimatedCost ?? 0) >= rule.costThreshold) &&
+      (rule.regions === undefined ||
+        rule.regions.length === 0 ||
+        (normalizedRegion.length > 0 &&
+          rule.regions.some((region) => region.trim().toLowerCase() === normalizedRegion))) &&
+      (rule.requiredTags === undefined ||
+        rule.requiredTags.length === 0 ||
+        rule.requiredTags.every((tag) => normalizedTags.has(tag.trim().toLowerCase()))) &&
+      (rule.linkedObjectTypes === undefined ||
+        rule.linkedObjectTypes.length === 0 ||
+        rule.linkedObjectTypes.some((type) => normalizedObjectTypes.has(type)))
   );
 
   if (matched.length === 0) {

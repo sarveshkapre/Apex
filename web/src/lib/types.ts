@@ -688,6 +688,9 @@ export interface ApprovalMatrixRule {
   requestType: string;
   riskLevel: RiskLevel;
   costThreshold?: number;
+  regions?: string[];
+  requiredTags?: string[];
+  linkedObjectTypes?: string[];
   approverTypes: string[];
   enabled: boolean;
 }

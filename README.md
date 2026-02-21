@@ -25,6 +25,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Approval engine now supports request-info decisions and parallel chain semantics (`all` / `any`)
 - Requester response loop for info-requested approvals (`My Requests` -> respond -> approval reopens)
 - Approvals inbox now includes contextual risk/recommendation hints and Admin Studio supports manual approval chain creation
+- Approval matrix rules support conditional routing by region, required tags, linked object types, and cost threshold
 - Approval timeout lifecycle with expiry and escalation to fallback approver
 - Workflow engine with execution logs and exception item creation
 - Built-in playbook workflow definitions:

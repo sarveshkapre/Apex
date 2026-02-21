@@ -503,6 +503,9 @@ export interface ApprovalMatrixRule {
   requestType: WorkItemType;
   riskLevel: RiskLevel;
   costThreshold?: number;
+  regions?: string[];
+  requiredTags?: string[];
+  linkedObjectTypes?: ObjectType[];
   approverTypes: ApprovalType[];
   enabled: boolean;
 }

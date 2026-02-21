@@ -921,7 +921,11 @@ export const createRoutes = (store: ApexStore): Router => {
       targetStage === "retire" ? "high" : targetStage === "service" || targetStage === "return" ? "medium" : "low";
 
     const approvalsRequiredSet = new Set(
-      approvalsForRequest([...store.approvalMatrixRules.values()], "Change", riskLevel, undefined)
+      approvalsForRequest([...store.approvalMatrixRules.values()], "Change", riskLevel, {
+        region: input.location,
+        tags: ["device-lifecycle", input.targetStage],
+        linkedObjectTypes: ["Device"]
+      })
     );
     approvalsRequiredSet.add("manager");
     if (targetStage === "retire") {
@@ -1084,7 +1088,11 @@ export const createRoutes = (store: ApexStore): Router => {
           : "low";
 
     const approvals = new Set(
-      approvalsForRequest([...store.approvalMatrixRules.values()], "Request", riskLevel, undefined)
+      approvalsForRequest([...store.approvalMatrixRules.values()], "Request", riskLevel, {
+        region: input.location,
+        tags: ["jml", "joiner", input.employmentType],
+        linkedObjectTypes: ["Person", "Identity", "Device"]
+      })
     );
     approvals.add("manager");
     if (input.employmentType === "contractor" || privilegedAppRequest) {
@@ -1195,12 +1203,11 @@ export const createRoutes = (store: ApexStore): Router => {
     const highChurn = addGroups.length + removeGroups.length + addApps.length + removeApps.length >= 6;
     const riskLevel = privilegedChanges || highChurn ? "high" : addGroups.length + removeGroups.length > 2 ? "medium" : "low";
 
-    const approvalsRequired = approvalsForRequest(
-      [...store.approvalMatrixRules.values()],
-      "Change",
-      riskLevel,
-      undefined
-    );
+    const approvalsRequired = approvalsForRequest([...store.approvalMatrixRules.values()], "Change", riskLevel, {
+      region: input.targetLocation,
+      tags: ["jml", "mover"],
+      linkedObjectTypes: ["Person"]
+    });
 
     return {
       personId: person.id,
@@ -1263,7 +1270,16 @@ export const createRoutes = (store: ApexStore): Router => {
     const riskLevel = highRisk ? "high" : input.contractorConversion ? "medium" : "medium";
 
     const approvalsRequiredSet = new Set(
-      approvalsForRequest([...store.approvalMatrixRules.values()], "Change", riskLevel, undefined)
+      approvalsForRequest([...store.approvalMatrixRules.values()], "Change", riskLevel, {
+        region,
+        tags: [
+          "jml",
+          "leaver",
+          input.vip ? "vip" : "non-vip",
+          input.legalHold ? "legal-hold" : "standard"
+        ],
+        linkedObjectTypes: ["Person", "Identity", "Device"]
+      })
     );
     approvalsRequiredSet.add("manager");
     if (input.vip || input.legalHold || input.deviceRecoveryState === "not-recovered") {
@@ -2852,12 +2868,46 @@ export const createRoutes = (store: ApexStore): Router => {
       return;
     }
 
-    const approvalTypes = approvalsForRequest(
-      [...store.approvalMatrixRules.values()],
-      "Request",
-      item.riskLevel,
-      parsed.estimatedCost
+    const regionFromFields = String(
+      parsed.fieldValues.region ??
+        parsed.fieldValues.location ??
+        parsed.fieldValues.country ??
+        item.regions[0] ??
+        ""
     );
+    const tagsFromFields = (() => {
+      const raw = parsed.fieldValues.tags;
+      if (Array.isArray(raw)) {
+        return raw.map((entry) => String(entry));
+      }
+      if (typeof raw === "string") {
+        return raw
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      }
+      return [];
+    })();
+    const linkedObjectTypes = (() => {
+      const raw = parsed.fieldValues.linked_object_types;
+      if (Array.isArray(raw)) {
+        return raw.map((entry) => String(entry));
+      }
+      if (typeof raw === "string") {
+        return raw
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      }
+      return [] as string[];
+    })();
+
+    const approvalTypes = approvalsForRequest([...store.approvalMatrixRules.values()], "Request", item.riskLevel, {
+      estimatedCost: parsed.estimatedCost,
+      region: regionFromFields,
+      tags: ["catalog", item.category.toLowerCase(), item.id, ...tagsFromFields],
+      linkedObjectTypes
+    });
 
     for (const type of approvalTypes) {
       const approverId = `${type}-approver`;
@@ -3812,6 +3862,9 @@ export const createRoutes = (store: ApexStore): Router => {
       requestType: parsed.requestType,
       riskLevel: parsed.riskLevel,
       costThreshold: parsed.costThreshold,
+      regions: parsed.regions,
+      requiredTags: parsed.requiredTags,
+      linkedObjectTypes: parsed.linkedObjectTypes,
       approverTypes: parsed.approverTypes,
       enabled: parsed.enabled
     };

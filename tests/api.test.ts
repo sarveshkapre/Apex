@@ -762,6 +762,77 @@ describe("Apex API", () => {
     expect(approvalTypes).toContain("security");
   });
 
+  it("applies conditional approval matrix rules by region, tags, and linked object types", async () => {
+    const { app } = createApp();
+
+    const addRegionalRule = await request(app)
+      .post("/v1/admin/rbac/approval-matrix")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        name: "EU device procurement finance gate",
+        requestType: "Request",
+        riskLevel: "medium",
+        regions: ["eu"],
+        requiredTags: ["devices"],
+        approverTypes: ["finance"],
+        enabled: true
+      });
+    expect(addRegionalRule.status).toBe(201);
+
+    const addObjectTypeRule = await request(app)
+      .post("/v1/admin/rbac/approval-matrix")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        name: "Device-linked request security review",
+        requestType: "Request",
+        riskLevel: "medium",
+        linkedObjectTypes: ["Device"],
+        approverTypes: ["security"],
+        enabled: true
+      });
+    expect(addObjectTypeRule.status).toBe(201);
+
+    const matched = await request(app)
+      .post("/v1/catalog/submit")
+      .set("x-actor-id", "requester-3")
+      .set("x-actor-role", "end-user")
+      .send({
+        catalogItemId: "cat-laptop",
+        requesterId: "person-1",
+        title: "EU laptop request",
+        fieldValues: {
+          region: "eu",
+          linked_object_types: ["Device"]
+        }
+      });
+    expect(matched.status).toBe(201);
+    const matchedTypes = matched.body.data.approvals.map((item: { type: string }) => item.type);
+    expect(matchedTypes).toContain("manager");
+    expect(matchedTypes).toContain("finance");
+    expect(matchedTypes).toContain("security");
+
+    const unmatched = await request(app)
+      .post("/v1/catalog/submit")
+      .set("x-actor-id", "requester-3")
+      .set("x-actor-role", "end-user")
+      .send({
+        catalogItemId: "cat-laptop",
+        requesterId: "person-1",
+        title: "US laptop request",
+        fieldValues: {
+          region: "us",
+          linked_object_types: ["SaaSAccount"]
+        }
+      });
+    expect(unmatched.status).toBe(201);
+    const unmatchedTypes = unmatched.body.data.approvals.map((item: { type: string }) => item.type);
+    expect(unmatchedTypes).toContain("manager");
+    expect(unmatchedTypes).not.toContain("finance");
+    expect(unmatchedTypes).not.toContain("security");
+  });
+
   it("supports request-info approval decision and sets work item to Waiting", async () => {
     const { app } = createApp();
 

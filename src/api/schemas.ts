@@ -442,6 +442,9 @@ export const approvalMatrixRuleCreateSchema = z.object({
   requestType: z.enum(workItemTypes),
   riskLevel: z.enum(["low", "medium", "high"]),
   costThreshold: z.number().nonnegative().optional(),
+  regions: z.array(z.string().min(1)).optional(),
+  requiredTags: z.array(z.string().min(1)).optional(),
+  linkedObjectTypes: z.array(z.enum(coreObjectTypes)).optional(),
   approverTypes: z.array(z.enum(["manager", "app-owner", "security", "finance", "it", "custom"])).min(1),
   enabled: z.boolean().default(true)
 });

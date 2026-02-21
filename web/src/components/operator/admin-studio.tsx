@@ -85,6 +85,10 @@ export function AdminStudio({
   const [matrixName, setMatrixName] = React.useState("High risk access chain");
   const [matrixRequestType, setMatrixRequestType] = React.useState("Request");
   const [matrixRisk, setMatrixRisk] = React.useState<"low" | "medium" | "high">("high");
+  const [matrixCostThreshold, setMatrixCostThreshold] = React.useState("");
+  const [matrixRegions, setMatrixRegions] = React.useState("");
+  const [matrixRequiredTags, setMatrixRequiredTags] = React.useState("");
+  const [matrixLinkedObjectTypes, setMatrixLinkedObjectTypes] = React.useState("");
   const [matrixApprovers, setMatrixApprovers] = React.useState("manager,security");
 
   const [chainWorkItemId, setChainWorkItemId] = React.useState("");
@@ -198,10 +202,15 @@ export function AdminStudio({
   };
 
   const addApprovalMatrixRule = async () => {
+    const parsedCost = matrixCostThreshold.trim();
     const response = await createApprovalMatrixRule({
       name: matrixName,
       requestType: matrixRequestType,
       riskLevel: matrixRisk,
+      costThreshold: parsedCost ? Number(parsedCost) : undefined,
+      regions: parseCsv(matrixRegions),
+      requiredTags: parseCsv(matrixRequiredTags),
+      linkedObjectTypes: parseCsv(matrixLinkedObjectTypes),
       approverTypes: parseCsv(matrixApprovers),
       enabled: true
     });
@@ -337,12 +346,33 @@ export function AdminStudio({
                 <SelectItem value="high">High</SelectItem>
               </SelectContent>
             </Select>
+            <Input
+              value={matrixCostThreshold}
+              onChange={(event) => setMatrixCostThreshold(event.target.value)}
+              placeholder="Cost threshold (optional)"
+              type="number"
+            />
+            <Input value={matrixRegions} onChange={(event) => setMatrixRegions(event.target.value)} placeholder="Regions (csv, optional)" />
+            <Input
+              value={matrixRequiredTags}
+              onChange={(event) => setMatrixRequiredTags(event.target.value)}
+              placeholder="Required tags (csv, optional)"
+            />
+            <Input
+              value={matrixLinkedObjectTypes}
+              onChange={(event) => setMatrixLinkedObjectTypes(event.target.value)}
+              placeholder="Linked object types (csv, optional)"
+            />
             <Input value={matrixApprovers} onChange={(event) => setMatrixApprovers(event.target.value)} placeholder="Approver types (csv)" />
             <Button onClick={addApprovalMatrixRule} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />Add matrix rule</Button>
             <div className="space-y-1 text-xs text-zinc-600">
               {approvalMatrix.map((rule) => (
                 <p key={rule.id} className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5">
                   {rule.name} • {rule.requestType} • {rule.riskLevel} • {rule.approverTypes.join(",")}
+                  {rule.costThreshold !== undefined ? ` • min$${rule.costThreshold}` : ""}
+                  {rule.regions?.length ? ` • regions:${rule.regions.join("/")}` : ""}
+                  {rule.requiredTags?.length ? ` • tags:${rule.requiredTags.join("/")}` : ""}
+                  {rule.linkedObjectTypes?.length ? ` • objects:${rule.linkedObjectTypes.join("/")}` : ""}
                 </p>
               ))}
             </div>

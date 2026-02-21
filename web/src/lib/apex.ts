@@ -1435,6 +1435,9 @@ export const createApprovalMatrixRule = async (payload: {
   requestType: string;
   riskLevel: "low" | "medium" | "high";
   costThreshold?: number;
+  regions?: string[];
+  requiredTags?: string[];
+  linkedObjectTypes?: string[];
   approverTypes: string[];
   enabled: boolean;
 }) => {
