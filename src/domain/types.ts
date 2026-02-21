@@ -209,7 +209,8 @@ export type ApprovalType =
   | "it"
   | "custom";
 
-export type ApprovalDecision = "pending" | "approved" | "rejected" | "expired";
+export type ApprovalDecision = "pending" | "approved" | "rejected" | "expired" | "info-requested";
+export type ApprovalChainMode = "all" | "any";
 
 export interface ApprovalRecord {
   id: string;
@@ -222,6 +223,9 @@ export interface ApprovalRecord {
   comment?: string;
   expiresAt?: string;
   decidedAt?: string;
+  chainId?: string;
+  chainMode?: ApprovalChainMode;
+  chainOrder?: number;
   createdAt: string;
 }
 

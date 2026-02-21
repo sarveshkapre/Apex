@@ -43,6 +43,7 @@ import {
   approvalDecisionSchema,
   approvalEscalationRunSchema,
   approvalExpirySchema,
+  approvalChainCreateSchema,
   approvalMatrixRuleCreateSchema,
   aiPromptSchema,
   attachmentCreateSchema,
@@ -2894,7 +2895,9 @@ export const createRoutes = (store: ApexStore): Router => {
     };
     store.workItems.set(workItem.id, workItem);
 
-    const createdApprovals = approvalTypes.map((type) => {
+    const chainId = approvalTypes.length > 1 ? store.createId() : undefined;
+    const chainMode = approvalTypes.length > 1 ? ("all" as const) : undefined;
+    const createdApprovals = approvalTypes.map((type, index) => {
       const approverId = `${type}-approver`;
       const approval = {
         id: store.createId(),
@@ -2904,6 +2907,9 @@ export const createRoutes = (store: ApexStore): Router => {
         type,
         approverId,
         decision: "pending" as const,
+        chainId,
+        chainMode,
+        chainOrder: chainId ? index + 1 : undefined,
         createdAt: nowIso()
       };
       store.approvals.set(approval.id, approval);
@@ -4097,6 +4103,69 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data });
   });
 
+  router.post("/approvals/chains", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "approval:decide") || can(actor.role, "workflow:run"));
+    const parsed = approvalChainCreateSchema.parse(req.body);
+    const workItem = store.workItems.get(parsed.workItemId);
+    if (!workItem) {
+      res.status(404).json({ error: "Work item not found for approval chain" });
+      return;
+    }
+
+    const chainId = store.createId();
+    const createdApprovals: ApprovalRecord[] = [];
+    for (const [index, candidate] of parsed.approvals.entries()) {
+      const sod = validateSod([...store.sodRules.values()], workItem.type, workItem.requesterId, candidate.approverId);
+      if (!sod.ok) {
+        res.status(409).json({ error: sod.reason ?? "Separation-of-duties validation failed" });
+        return;
+      }
+
+      const approval: ApprovalRecord = {
+        id: store.createId(),
+        tenantId: parsed.tenantId,
+        workspaceId: parsed.workspaceId,
+        workItemId: parsed.workItemId,
+        type: candidate.type,
+        approverId: candidate.approverId,
+        decision: "pending",
+        expiresAt: candidate.expiresAt,
+        chainId,
+        chainMode: parsed.mode,
+        chainOrder: index + 1,
+        createdAt: nowIso()
+      };
+      store.approvals.set(approval.id, approval);
+      createdApprovals.push(approval);
+      store.pushTimeline({
+        tenantId: approval.tenantId,
+        workspaceId: approval.workspaceId,
+        entityType: "approval",
+        entityId: approval.id,
+        eventType: "approval.requested",
+        actor: actor.id,
+        reason: parsed.reason,
+        createdAt: nowIso(),
+        payload: {
+          workItemId: approval.workItemId,
+          chainId,
+          chainMode: parsed.mode,
+          chainOrder: approval.chainOrder
+        }
+      });
+    }
+
+    res.status(201).json({
+      data: {
+        chainId,
+        mode: parsed.mode,
+        workItemId: parsed.workItemId,
+        approvals: createdApprovals
+      }
+    });
+  });
+
   router.post("/approvals/:id/expiry", (req, res) => {
     const actor = getActor(req.headers);
     permission(can(actor.role, "approval:decide"));
@@ -4163,6 +4232,9 @@ export const createRoutes = (store: ApexStore): Router => {
         approverId: parsed.fallbackApproverId,
         decision: "pending",
         comment: `Escalated from ${approval.id}`,
+        chainId: approval.chainId,
+        chainMode: approval.chainMode,
+        chainOrder: approval.chainOrder,
         createdAt: nowIso(),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
       };

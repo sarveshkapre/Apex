@@ -121,11 +121,14 @@ export interface Approval {
   workItemId: string;
   type: string;
   approverId: string;
-  decision: string;
+  decision: "pending" | "approved" | "rejected" | "expired" | "info-requested";
   comment?: string;
   createdAt: string;
   decidedAt?: string;
   expiresAt?: string;
+  chainId?: string;
+  chainMode?: "all" | "any";
+  chainOrder?: number;
 }
 
 export interface ApprovalEscalationRunResult {

@@ -22,6 +22,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Device lifecycle orchestration planner/executor (request, fulfill, deploy, monitor, service, return, retire)
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
+- Approval engine now supports request-info decisions and parallel chain semantics (`all` / `any`)
 - Approval timeout lifecycle with expiry and escalation to fallback approver
 - Workflow engine with execution logs and exception item creation
 - Built-in playbook workflow definitions:
@@ -161,6 +162,7 @@ npm --prefix web run build
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `POST /v1/work-items/bulk`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
+- `POST /v1/approvals/chains`
 - `POST /v1/approvals/:id/expiry`, `POST /v1/approvals/escalations/run`
 - `GET /v1/workflows/definitions`
 - `POST /v1/workflows/runs`, `POST /v1/workflows/runs/:id/advance`

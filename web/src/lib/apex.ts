@@ -1057,7 +1057,11 @@ export const listApprovalsInbox = async (approverId: string): Promise<Approval[]
   );
 };
 
-export const decideApproval = async (approvalId: string, decision: "approved" | "rejected", comment?: string) => {
+export const decideApproval = async (
+  approvalId: string,
+  decision: "approved" | "rejected" | "info-requested",
+  comment?: string
+) => {
   return fetch(`${API_BASE}/approvals/${approvalId}/decision`, {
     method: "POST",
     headers: {

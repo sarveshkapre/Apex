@@ -762,6 +762,108 @@ describe("Apex API", () => {
     expect(approvalTypes).toContain("security");
   });
 
+  it("supports request-info approval decision and sets work item to Waiting", async () => {
+    const { app } = createApp();
+
+    const submitted = await request(app)
+      .post("/v1/catalog/submit")
+      .set("x-actor-id", "requester-2")
+      .set("x-actor-role", "end-user")
+      .send({
+        catalogItemId: "cat-admin",
+        requesterId: "person-1",
+        title: "Need temporary admin privileges for request-info path"
+      });
+    expect(submitted.status).toBe(201);
+    const approvalId = submitted.body.data.approvals[0].id as string;
+    const workItemId = submitted.body.data.workItem.id as string;
+
+    const decided = await request(app)
+      .post(`/v1/approvals/${approvalId}/decision`)
+      .set("x-actor-id", "manager-approver")
+      .set("x-actor-role", "it-admin")
+      .send({
+        decision: "info-requested",
+        comment: "Need additional business justification and duration."
+      });
+    expect(decided.status).toBe(200);
+    expect(decided.body.data.decision).toBe("info-requested");
+
+    const approvals = await request(app).get("/v1/approvals").query({ workItemId });
+    expect(approvals.status).toBe(200);
+    const approval = approvals.body.data.find((item: { id: string }) => item.id === approvalId);
+    expect(approval.decision).toBe("info-requested");
+
+    const workItems = await request(app).get("/v1/work-items");
+    const workItem = workItems.body.data.find((item: { id: string }) => item.id === workItemId);
+    expect(workItem.status).toBe("Waiting");
+  });
+
+  it("evaluates any-of approval chains and supersedes pending peers", async () => {
+    const { app } = createApp();
+
+    const workItemResponse = await request(app)
+      .post("/v1/work-items")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Request",
+        priority: "P2",
+        title: "Approval chain any-mode test",
+        requesterId: "person-1",
+        assignmentGroup: "Access Ops"
+      });
+    expect(workItemResponse.status).toBe(201);
+    const workItemId = workItemResponse.body.data.id as string;
+
+    const chain = await request(app)
+      .post("/v1/approvals/chains")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        workItemId,
+        mode: "any",
+        approvals: [
+          { type: "manager", approverId: "manager-approver" },
+          { type: "security", approverId: "security-approver" }
+        ],
+        reason: "Test parallel any-of behavior"
+      });
+    expect(chain.status).toBe(201);
+    expect(chain.body.data.approvals.length).toBe(2);
+
+    const firstApprovalId = chain.body.data.approvals[0].id as string;
+    const decide = await request(app)
+      .post(`/v1/approvals/${firstApprovalId}/decision`)
+      .set("x-actor-id", "manager-approver")
+      .set("x-actor-role", "it-admin")
+      .send({
+        decision: "approved",
+        comment: "Approved by manager"
+      });
+    expect(decide.status).toBe(200);
+
+    const approvals = await request(app).get("/v1/approvals").query({ workItemId });
+    expect(approvals.status).toBe(200);
+    const approved = approvals.body.data.find((item: { decision: string; id: string }) => item.id === firstApprovalId);
+    expect(approved.decision).toBe("approved");
+    const superseded = approvals.body.data.find(
+      (item: { id: string; decision: string; comment?: string }) =>
+        item.id !== firstApprovalId &&
+        item.decision === "expired" &&
+        item.comment?.includes("Superseded by any-of approval chain decision")
+    );
+    expect(superseded).toBeTruthy();
+
+    const workItems = await request(app).get("/v1/work-items");
+    const workItem = workItems.body.data.find((item: { id: string }) => item.id === workItemId);
+    expect(workItem.status).toBe("In Progress");
+  });
+
   it("expires timed-out approvals and escalates them to fallback approver", async () => {
     const { app } = createApp();
 

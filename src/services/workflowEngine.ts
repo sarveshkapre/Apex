@@ -172,7 +172,7 @@ export class WorkflowEngine {
     return run;
   }
 
-  decideApproval(approvalId: string, actor: ApiActor, decision: "approved" | "rejected", comment?: string): ApprovalRecord {
+  decideApproval(approvalId: string, actor: ApiActor, decision: "approved" | "rejected" | "info-requested", comment?: string): ApprovalRecord {
     if (!can(actor.role, "approval:decide")) {
       throw new Error("Permission denied for approvals");
     }
@@ -191,8 +191,8 @@ export class WorkflowEngine {
       throw new Error("Permission denied: actor is not assigned approver");
     }
 
-    if (decision === "rejected" && (!comment || comment.trim().length === 0)) {
-      throw new Error("Reject decision requires a comment");
+    if ((decision === "rejected" || decision === "info-requested") && (!comment || comment.trim().length === 0)) {
+      throw new Error("Rejected and request-info decisions require a comment");
     }
 
     approval.decision = decision;
@@ -211,7 +211,39 @@ export class WorkflowEngine {
       payload: { decision, comment }
     });
 
+    const workItem = this.store.workItems.get(approval.workItemId);
+    if (workItem) {
+      if (decision === "rejected") {
+        workItem.status = "Blocked";
+      }
+      if (decision === "info-requested") {
+        workItem.status = "Waiting";
+        if (comment) {
+          workItem.comments.push({
+            id: this.store.createId(),
+            authorId: actor.id,
+            body: `Approval requested more info: ${comment}`,
+            mentions: [workItem.requesterId],
+            createdAt: nowIso()
+          });
+        }
+      }
+      workItem.updatedAt = nowIso();
+      this.store.workItems.set(workItem.id, workItem);
+    }
+
     if (decision === "approved") {
+      const chainStatus = this.evaluateApprovalChain(approval);
+      if (!chainStatus.satisfied) {
+        return approval;
+      }
+
+      if (workItem) {
+        workItem.status = "In Progress";
+        workItem.updatedAt = nowIso();
+        this.store.workItems.set(workItem.id, workItem);
+      }
+
       const run = this.store.workflowRuns.get(approval.workItemId);
       if (run) {
         run.status = "running";
@@ -223,6 +255,38 @@ export class WorkflowEngine {
     }
 
     return approval;
+  }
+
+  private evaluateApprovalChain(
+    approval: ApprovalRecord
+  ): { satisfied: boolean; mode?: "all" | "any"; approvals: ApprovalRecord[] } {
+    if (!approval.chainId) {
+      return { satisfied: true, approvals: [approval] };
+    }
+
+    const chainApprovals = [...this.store.approvals.values()]
+      .filter((item) => item.chainId === approval.chainId)
+      .sort((left, right) => (left.chainOrder ?? 0) - (right.chainOrder ?? 0));
+    const mode = approval.chainMode ?? "all";
+
+    const satisfied =
+      mode === "all"
+        ? chainApprovals.every((item) => item.decision === "approved")
+        : chainApprovals.some((item) => item.decision === "approved");
+
+    if (mode === "any" && satisfied) {
+      for (const item of chainApprovals) {
+        if (item.id === approval.id || item.decision !== "pending") {
+          continue;
+        }
+        item.decision = "expired";
+        item.decidedAt = nowIso();
+        item.comment = "Superseded by any-of approval chain decision";
+        this.store.approvals.set(item.id, item);
+      }
+    }
+
+    return { satisfied, mode, approvals: chainApprovals };
   }
 
   private executeStep(

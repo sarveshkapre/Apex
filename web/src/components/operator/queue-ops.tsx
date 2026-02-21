@@ -410,6 +410,7 @@ export function QueueOps({
               <p className="mb-1">
                 Approval {approval.id.slice(0, 8)} • {approval.type} • {approval.decision}
                 {approval.expiresAt ? ` • expires ${approval.expiresAt}` : ""}
+                {approval.chainId ? ` • chain ${approval.chainMode ?? "all"} #${approval.chainOrder ?? "-"}` : ""}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
@@ -429,6 +430,19 @@ export function QueueOps({
                   setStatus(response.ok ? "Approval rejected." : "Approval update failed.");
                 }}>
                   <X className="mr-1 h-3 w-3" />Reject
+                </Button>
+                <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
+                  const response = await decideApproval(
+                    approval.id,
+                    "info-requested",
+                    "Need additional justification and requested duration."
+                  );
+                  if (response.ok) {
+                    await refreshApprovals();
+                  }
+                  setStatus(response.ok ? "Requested more info from requester." : "Approval update failed.");
+                }}>
+                  Request info
                 </Button>
                 <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
                   const expiresAt = new Date(Date.now() - 60 * 1000).toISOString();

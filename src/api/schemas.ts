@@ -161,9 +161,35 @@ export const runWorkflowSchema = z.object({
   linkedWorkItemId: z.string().optional()
 });
 
-export const approvalDecisionSchema = z.object({
-  decision: z.enum(["approved", "rejected"]),
-  comment: z.string().optional()
+export const approvalDecisionSchema = z
+  .object({
+    decision: z.enum(["approved", "rejected", "info-requested"]),
+    comment: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if ((value.decision === "rejected" || value.decision === "info-requested") && !value.comment?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "comment is required for rejected and info-requested decisions"
+      });
+    }
+  });
+
+export const approvalChainCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  workItemId: z.string().min(1),
+  mode: z.enum(["all", "any"]).default("all"),
+  approvals: z
+    .array(
+      z.object({
+        type: z.enum(["manager", "app-owner", "security", "finance", "it", "custom"]),
+        approverId: z.string().min(1),
+        expiresAt: z.string().datetime().optional()
+      })
+    )
+    .min(1),
+  reason: z.string().optional()
 });
 
 export const commentCreateSchema = z.object({
