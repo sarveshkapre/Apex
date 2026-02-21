@@ -314,6 +314,15 @@ export const approvalDelegationSchema = z.object({
   comment: z.string().optional()
 });
 
+export const approvalExpirySchema = z.object({
+  expiresAt: z.string().datetime()
+});
+
+export const approvalEscalationRunSchema = z.object({
+  fallbackApproverId: z.string().min(1).default("it-admin-escalation"),
+  dryRun: z.boolean().default(false)
+});
+
 export const exceptionActionSchema = z.object({
   action: z.enum(["retry", "resolve", "escalate"]),
   reason: z.string().min(1)

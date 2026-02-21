@@ -34,6 +34,8 @@ import { nowIso } from "../utils/time";
 import { can } from "../services/rbac";
 import {
   approvalDecisionSchema,
+  approvalEscalationRunSchema,
+  approvalExpirySchema,
   approvalMatrixRuleCreateSchema,
   aiPromptSchema,
   attachmentCreateSchema,
@@ -3153,6 +3155,106 @@ export const createRoutes = (store: ApexStore): Router => {
         approval.approverId === approverId && (decision ? approval.decision === decision : true)
     );
     res.json({ data });
+  });
+
+  router.post("/approvals/:id/expiry", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "approval:decide"));
+    const parsed = approvalExpirySchema.parse(req.body);
+    const approval = store.approvals.get(req.params.id);
+    if (!approval) {
+      res.status(404).json({ error: "Approval not found" });
+      return;
+    }
+    approval.expiresAt = parsed.expiresAt;
+    store.approvals.set(approval.id, approval);
+    res.json({ data: approval });
+  });
+
+  router.post("/approvals/escalations/run", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "approval:decide"));
+    const parsed = approvalEscalationRunSchema.parse(req.body);
+
+    const nowTs = Date.now();
+    const expiredApprovals = [...store.approvals.values()].filter((approval) => {
+      if (approval.decision !== "pending" || !approval.expiresAt) {
+        return false;
+      }
+      const expiryTs = new Date(approval.expiresAt).getTime();
+      return !Number.isNaN(expiryTs) && expiryTs <= nowTs;
+    });
+
+    const escalatedApprovalIds: string[] = [];
+    const expiredApprovalIds: string[] = [];
+
+    for (const approval of expiredApprovals) {
+      expiredApprovalIds.push(approval.id);
+
+      if (parsed.dryRun) {
+        continue;
+      }
+
+      approval.decision = "expired";
+      approval.decidedAt = nowIso();
+      approval.comment = "Timed out and escalated";
+      store.approvals.set(approval.id, approval);
+
+      store.pushTimeline({
+        tenantId: approval.tenantId,
+        workspaceId: approval.workspaceId,
+        entityType: "approval",
+        entityId: approval.id,
+        eventType: "approval.decided",
+        actor: actor.id,
+        createdAt: nowIso(),
+        payload: {
+          decision: "expired",
+          comment: approval.comment
+        }
+      });
+
+      const escalated: typeof approval = {
+        id: store.createId(),
+        tenantId: approval.tenantId,
+        workspaceId: approval.workspaceId,
+        workItemId: approval.workItemId,
+        type: approval.type,
+        approverId: parsed.fallbackApproverId,
+        decision: "pending",
+        comment: `Escalated from ${approval.id}`,
+        createdAt: nowIso(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      };
+      store.approvals.set(escalated.id, escalated);
+      escalatedApprovalIds.push(escalated.id);
+
+      store.pushTimeline({
+        tenantId: escalated.tenantId,
+        workspaceId: escalated.workspaceId,
+        entityType: "approval",
+        entityId: escalated.id,
+        eventType: "approval.requested",
+        actor: actor.id,
+        reason: "Escalated after approval timeout",
+        createdAt: nowIso(),
+        payload: {
+          previousApprovalId: approval.id,
+          workItemId: approval.workItemId,
+          type: approval.type
+        }
+      });
+    }
+
+    res.json({
+      data: {
+        mode: parsed.dryRun ? "dry-run" : "live",
+        expiredCount: expiredApprovalIds.length,
+        escalatedCount: escalatedApprovalIds.length,
+        expiredApprovalIds,
+        escalatedApprovalIds
+      }
+    });
   });
 
   router.post("/approvals/:id/decision", (req, res) => {

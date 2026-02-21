@@ -74,6 +74,15 @@ export interface Approval {
   comment?: string;
   createdAt: string;
   decidedAt?: string;
+  expiresAt?: string;
+}
+
+export interface ApprovalEscalationRunResult {
+  mode: "dry-run" | "live";
+  expiredCount: number;
+  escalatedCount: number;
+  expiredApprovalIds: string[];
+  escalatedApprovalIds: string[];
 }
 
 export interface WorkflowDefinition {

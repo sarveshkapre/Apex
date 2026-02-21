@@ -17,10 +17,13 @@ import {
   decideApproval,
   delegateApproval,
   linkExternalTicket,
+  listApprovalsInbox,
   listExternalTicketComments,
   listWorkItems,
+  runApprovalEscalations,
   runExceptionAction,
-  runWorkItemBulkAction
+  runWorkItemBulkAction,
+  setApprovalExpiry
 } from "@/lib/apex";
 import {
   Approval,
@@ -46,6 +49,7 @@ export function QueueOps({
   externalLinks: ExternalTicketLink[];
 }) {
   const [queueItems, setQueueItems] = React.useState(items);
+  const [approvalItems, setApprovalItems] = React.useState(approvals);
   const [filterText, setFilterText] = React.useState("");
   const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const [bulkAction, setBulkAction] = React.useState<WorkItemBulkAction>("assign");
@@ -62,6 +66,7 @@ export function QueueOps({
   const [ticketId, setTicketId] = React.useState("");
   const [workItemId, setWorkItemId] = React.useState(items[0]?.id ?? "");
   const [delegateTo, setDelegateTo] = React.useState("backup-approver");
+  const [escalationFallbackApprover, setEscalationFallbackApprover] = React.useState("it-admin-escalation");
   const [status, setStatus] = React.useState("");
 
   const [links, setLinks] = React.useState(externalLinks);
@@ -72,6 +77,10 @@ export function QueueOps({
   React.useEffect(() => {
     setQueueItems(items);
   }, [items]);
+
+  React.useEffect(() => {
+    setApprovalItems(approvals);
+  }, [approvals]);
 
   React.useEffect(() => {
     setSelectedIds((current) => current.filter((id) => queueItems.some((item) => item.id === id)));
@@ -189,6 +198,29 @@ export function QueueOps({
       setStatus(`Bulk ${result.action} completed for ${changed} item(s).`);
     } catch {
       setStatus("Bulk action failed.");
+    }
+  };
+
+  const refreshApprovals = async () => {
+    try {
+      const latest = await listApprovalsInbox("manager-approver");
+      setApprovalItems(latest);
+    } catch {
+      setStatus("Approval inbox refresh failed.");
+    }
+  };
+
+  const runEscalation = async (dryRun: boolean) => {
+    try {
+      const result = await runApprovalEscalations(escalationFallbackApprover, dryRun);
+      if (!dryRun) {
+        await refreshApprovals();
+      }
+      setStatus(
+        `${result.mode} escalation: expired ${result.expiredCount}, escalated ${result.escalatedCount}.`
+      );
+    } catch {
+      setStatus("Approval escalation run failed.");
     }
   };
 
@@ -356,28 +388,65 @@ export function QueueOps({
       </div>
 
       <div className="rounded-xl border border-zinc-200 bg-white p-3">
-        <p className="mb-2 text-sm font-medium text-zinc-900">Approvals inbox ({approvals.length})</p>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium text-zinc-900">Approvals inbox ({approvalItems.length})</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              value={escalationFallbackApprover}
+              onChange={(event) => setEscalationFallbackApprover(event.target.value)}
+              className="h-8 w-[180px]"
+            />
+            <Button size="sm" variant="outline" className="rounded-md" onClick={() => runEscalation(true)}>
+              Dry-run timeout scan
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-md" onClick={() => runEscalation(false)}>
+              Escalate timed-out
+            </Button>
+          </div>
+        </div>
         <div className="space-y-2 text-xs text-zinc-600">
-          {approvals.map((approval) => (
+          {approvalItems.map((approval) => (
             <div key={approval.id} className="rounded-lg border border-zinc-200 p-2">
-              <p className="mb-1">Approval {approval.id.slice(0, 8)} • {approval.type} • {approval.decision}</p>
+              <p className="mb-1">
+                Approval {approval.id.slice(0, 8)} • {approval.type} • {approval.decision}
+                {approval.expiresAt ? ` • expires ${approval.expiresAt}` : ""}
+              </p>
               <div className="flex flex-wrap gap-1.5">
                 <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
                   const response = await decideApproval(approval.id, "approved", "Approved in queue center");
+                  if (response.ok) {
+                    await refreshApprovals();
+                  }
                   setStatus(response.ok ? "Approval approved." : "Approval update failed.");
                 }}>
                   <Check className="mr-1 h-3 w-3" />Approve
                 </Button>
                 <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
                   const response = await decideApproval(approval.id, "rejected", "Insufficient context");
+                  if (response.ok) {
+                    await refreshApprovals();
+                  }
                   setStatus(response.ok ? "Approval rejected." : "Approval update failed.");
                 }}>
                   <X className="mr-1 h-3 w-3" />Reject
+                </Button>
+                <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
+                  const expiresAt = new Date(Date.now() - 60 * 1000).toISOString();
+                  const response = await setApprovalExpiry(approval.id, expiresAt);
+                  if (response.ok) {
+                    await refreshApprovals();
+                  }
+                  setStatus(response.ok ? "Approval marked expired (for escalation)." : "Failed to set approval expiry.");
+                }}>
+                  Timeout now
                 </Button>
                 <div className="inline-flex items-center gap-1">
                   <Input value={delegateTo} onChange={(event) => setDelegateTo(event.target.value)} className="h-8 max-w-[150px]" />
                   <Button size="sm" variant="outline" className="rounded-md" onClick={async () => {
                     const response = await delegateApproval(approval.id, delegateTo, "OOO delegation");
+                    if (response.ok) {
+                      await refreshApprovals();
+                    }
                     setStatus(response.ok ? "Approval delegated." : "Approval delegation failed.");
                   }}>
                     <Send className="mr-1 h-3 w-3" />Delegate

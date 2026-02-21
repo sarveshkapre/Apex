@@ -1,5 +1,6 @@
 import {
   Approval,
+  ApprovalEscalationRunResult,
   ApprovalMatrixRule,
   AiInsight,
   CatalogItem,
@@ -662,6 +663,38 @@ export const delegateApproval = async (approvalId: string, approverId: string, c
     },
     body: JSON.stringify({ approverId, comment })
   });
+};
+
+export const setApprovalExpiry = async (approvalId: string, expiresAt: string) => {
+  return fetch(`${API_BASE}/approvals/${approvalId}/expiry`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "manager-approver",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({ expiresAt })
+  });
+};
+
+export const runApprovalEscalations = async (
+  fallbackApproverId: string,
+  dryRun = false
+): Promise<ApprovalEscalationRunResult> => {
+  const response = await fetch(`${API_BASE}/approvals/escalations/run`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "manager-approver",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({ fallbackApproverId, dryRun })
+  });
+  if (!response.ok) {
+    throw new Error("Approval escalation run failed");
+  }
+  const json = (await response.json()) as ApiResponse<ApprovalEscalationRunResult>;
+  return json.data;
 };
 
 export const listExceptions = async (): Promise<WorkItem[]> => {

@@ -17,6 +17,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Manual field override controls with reason + optional expiry stored in provenance
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
+- Approval timeout lifecycle with expiry and escalation to fallback approver
 - Workflow engine with execution logs and exception item creation
 - Built-in playbook workflow definitions:
   - JML Joiner
@@ -54,6 +55,7 @@ This repository now ships a full-stack implementation baseline for Apex:
   - CSV preview/apply import (`/v1/import/csv/preview`, `/v1/import/csv/apply`)
   - workflow definition lifecycle + simulation (`/v1/workflows/definitions`, `/v1/workflows/definitions/:id/state`, `/v1/workflows/definitions/:id/simulate`)
   - approvals inbox + delegation (`/v1/approvals/inbox`, `/v1/approvals/:id/delegate`)
+  - approval timeout controls (`/v1/approvals/:id/expiry`, `/v1/approvals/escalations/run`)
   - exception queue operations (`/v1/exceptions`, `/v1/exceptions/:id/action`)
   - cloud tag governance coverage + enforcement (`/v1/cloud/tag-governance/coverage`, `/v1/cloud/tag-governance/enforce`)
   - SaaS reclaim policies + runs + retries (`/v1/saas/reclaim/policies`, `/v1/saas/reclaim/runs`, `/v1/saas/reclaim/runs/:id/retry`)
@@ -75,6 +77,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Command surface with AI request drafting, policy/workflow draft generation, and insights
 - Workflow Studio with draft/publish/rollback/simulate
 - Queue Center controls for approval decisions/delegation and exception retry/resolve/escalate
+- Queue Center timeout escalation controls for pending approvals
 - Queue Center bulk operations for assign/priority/tag/comment/workflow-step/export actions
 - Queue Center external ticket comment sync for overlay-mode collaboration
 - Admin CSV import wizard and config publish/rollback actions
@@ -137,6 +140,7 @@ npm --prefix web run build
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `POST /v1/work-items/bulk`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
+- `POST /v1/approvals/:id/expiry`, `POST /v1/approvals/escalations/run`
 - `GET /v1/workflows/definitions`
 - `POST /v1/workflows/runs`, `POST /v1/workflows/runs/:id/advance`
 - `GET /v1/evidence/:workItemId`

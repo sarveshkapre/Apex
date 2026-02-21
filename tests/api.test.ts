@@ -539,6 +539,60 @@ describe("Apex API", () => {
     expect(approvalTypes).toContain("security");
   });
 
+  it("expires timed-out approvals and escalates them to fallback approver", async () => {
+    const { app } = createApp();
+
+    const submitted = await request(app)
+      .post("/v1/catalog/submit")
+      .set("x-actor-id", "requester-2")
+      .set("x-actor-role", "end-user")
+      .send({
+        catalogItemId: "cat-admin",
+        requesterId: "person-1",
+        title: "Need temporary admin privileges for escalation test"
+      });
+    expect(submitted.status).toBe(201);
+    expect(submitted.body.data.approvals.length).toBeGreaterThan(0);
+
+    const approvalId = submitted.body.data.approvals[0].id as string;
+    const setExpiry = await request(app)
+      .post(`/v1/approvals/${approvalId}/expiry`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ expiresAt: new Date(Date.now() - 60 * 1000).toISOString() });
+    expect(setExpiry.status).toBe(200);
+
+    const dryRun = await request(app)
+      .post("/v1/approvals/escalations/run")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ fallbackApproverId: "security-escalation", dryRun: true });
+    expect(dryRun.status).toBe(200);
+    expect(dryRun.body.data.expiredCount).toBeGreaterThanOrEqual(1);
+    expect(dryRun.body.data.escalatedCount).toBe(0);
+
+    const liveRun = await request(app)
+      .post("/v1/approvals/escalations/run")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ fallbackApproverId: "security-escalation", dryRun: false });
+    expect(liveRun.status).toBe(200);
+    expect(liveRun.body.data.expiredCount).toBeGreaterThanOrEqual(1);
+    expect(liveRun.body.data.escalatedCount).toBeGreaterThanOrEqual(1);
+
+    const approvals = await request(app).get("/v1/approvals").query({ workItemId: submitted.body.data.workItem.id });
+    expect(approvals.status).toBe(200);
+
+    const original = approvals.body.data.find((item: { id: string }) => item.id === approvalId);
+    expect(original.decision).toBe("expired");
+
+    const escalated = approvals.body.data.find(
+      (item: { id: string; approverId: string; decision: string }) =>
+        item.id !== approvalId && item.approverId === "security-escalation" && item.decision === "pending"
+    );
+    expect(escalated).toBeTruthy();
+  });
+
   it("returns cloud tag coverage with noncompliant resources", async () => {
     const { app } = createApp();
 
