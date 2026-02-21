@@ -16,6 +16,8 @@ import {
   GraphRelationship,
   NotificationRule,
   PolicyDefinition,
+  ReportDefinition,
+  ReportRun,
   SaasReclaimPolicy,
   SaasReclaimRun,
   SavedView,
@@ -55,6 +57,9 @@ import {
   objectUpdateSchema,
   policyExceptionActionSchema,
   policyCreateSchema,
+  reportDefinitionCreateSchema,
+  reportDefinitionUpdateSchema,
+  reportRunCreateSchema,
   relationshipCreateSchema,
   runWorkflowSchema,
   savedViewCreateSchema,
@@ -163,6 +168,8 @@ const daysUntilDate = (date: Date): number => {
   const diffMs = date.getTime() - Date.now();
   return Math.ceil(diffMs / (24 * 60 * 60 * 1000));
 };
+
+const escapeCsv = (value: unknown): string => `"${String(value ?? "").replace(/"/g, '""')}"`;
 
 export const createRoutes = (store: ApexStore): Router => {
   const router = Router();
@@ -431,6 +438,56 @@ export const createRoutes = (store: ApexStore): Router => {
     store.saasReclaimPolicies.set(baselinePolicy.id, baselinePolicy);
   }
 
+  if (store.reportDefinitions.size === 0) {
+    const baselineReports: ReportDefinition[] = [
+      {
+        id: "report-stale-devices",
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: "Stale Devices",
+        description: "Devices that have not checked in recently.",
+        objectType: "Device",
+        filters: {
+          containsText: "last_checkin",
+          fieldEquals: {}
+        },
+        columns: ["id", "type", "asset_tag", "serial_number", "last_checkin", "compliance_state"],
+        schedule: {
+          frequency: "weekly",
+          hourUtc: 14
+        },
+        enabled: true,
+        createdBy: "system",
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      },
+      {
+        id: "report-active-saas-accounts",
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: "Active SaaS Accounts",
+        description: "Active SaaS accounts for entitlement review.",
+        objectType: "SaaSAccount",
+        filters: {
+          containsText: "active",
+          fieldEquals: { status: "active" }
+        },
+        columns: ["id", "type", "app", "person", "status", "last_active"],
+        schedule: {
+          frequency: "daily",
+          hourUtc: 13
+        },
+        enabled: true,
+        createdBy: "system",
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      }
+    ];
+    for (const report of baselineReports) {
+      store.reportDefinitions.set(report.id, report);
+    }
+  }
+
   const runSaasReclaim = (
     policy: SaasReclaimPolicy,
     actorId: string,
@@ -594,6 +651,81 @@ export const createRoutes = (store: ApexStore): Router => {
         candidateCount: run.candidateCount,
         reclaimedCount: run.reclaimedCount,
         failedCount: run.failedCount
+      }
+    });
+
+    return run;
+  };
+
+  const runReportDefinition = (
+    definition: ReportDefinition,
+    actorId: string,
+    trigger: "manual" | "scheduled"
+  ): ReportRun => {
+    const sourceObjects = [...store.objects.values()].filter((object) =>
+      definition.objectType ? object.type === definition.objectType : true
+    );
+
+    const matched = sourceObjects.filter((object) => {
+      const containsText = definition.filters.containsText?.trim().toLowerCase();
+      if (containsText) {
+        const haystack = JSON.stringify(object.fields).toLowerCase();
+        if (!haystack.includes(containsText)) {
+          return false;
+        }
+      }
+
+      for (const [field, expected] of Object.entries(definition.filters.fieldEquals)) {
+        if (String(object.fields[field] ?? "") !== String(expected)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const columns = definition.columns.length > 0 ? definition.columns : ["id", "type"];
+    const rows = matched.map((object) =>
+      columns.map((column) => {
+        if (column === "id") return object.id;
+        if (column === "type") return object.type;
+        return object.fields[column] ?? "";
+      })
+    );
+
+    const header = columns.map((column) => escapeCsv(column)).join(",");
+    const lines = rows.map((row) => row.map((value) => escapeCsv(value)).join(","));
+    const csv = [header, ...lines].join("\n");
+    const now = nowIso();
+
+    const run: ReportRun = {
+      id: store.createId(),
+      definitionId: definition.id,
+      trigger,
+      status: "success",
+      startedAt: now,
+      completedAt: now,
+      scannedCount: sourceObjects.length,
+      rowCount: matched.length,
+      fileName: `${definition.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${now.slice(0, 10)}.csv`,
+      format: "csv",
+      content: csv,
+      ranBy: actorId
+    };
+    store.reportRuns.set(run.id, run);
+
+    store.pushTimeline({
+      tenantId: definition.tenantId,
+      workspaceId: definition.workspaceId,
+      entityType: "report",
+      entityId: definition.id,
+      eventType: "report.run",
+      actor: actorId,
+      createdAt: nowIso(),
+      payload: {
+        runId: run.id,
+        trigger,
+        rowCount: run.rowCount,
+        scannedCount: run.scannedCount
       }
     });
 
@@ -1459,6 +1591,105 @@ export const createRoutes = (store: ApexStore): Router => {
   router.get("/dashboards/:name", (req, res) => {
     const key = req.params.name as keyof typeof dashboards;
     res.json({ data: dashboards[key] ?? dashboards.executive });
+  });
+
+  router.get("/reports/definitions", (_req, res) => {
+    const data = [...store.reportDefinitions.values()].sort((left, right) => left.name.localeCompare(right.name));
+    res.json({ data });
+  });
+
+  router.post("/reports/definitions", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = reportDefinitionCreateSchema.parse(req.body);
+    const definition: ReportDefinition = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      description: parsed.description,
+      objectType: parsed.objectType,
+      filters: {
+        containsText: parsed.filters.containsText,
+        fieldEquals: parsed.filters.fieldEquals
+      },
+      columns: parsed.columns,
+      schedule: parsed.schedule,
+      enabled: parsed.enabled,
+      createdBy: actor.id,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.reportDefinitions.set(definition.id, definition);
+    res.status(201).json({ data: definition });
+  });
+
+  router.patch("/reports/definitions/:id", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = reportDefinitionUpdateSchema.parse(req.body);
+    const definition = store.reportDefinitions.get(req.params.id);
+    if (!definition) {
+      res.status(404).json({ error: "Report definition not found" });
+      return;
+    }
+    if (parsed.name !== undefined) definition.name = parsed.name;
+    if (parsed.description !== undefined) definition.description = parsed.description;
+    if (parsed.objectType !== undefined) definition.objectType = parsed.objectType;
+    if (parsed.filters !== undefined) {
+      definition.filters = {
+        containsText: parsed.filters.containsText,
+        fieldEquals: parsed.filters.fieldEquals
+      };
+    }
+    if (parsed.columns !== undefined) definition.columns = parsed.columns;
+    if (parsed.schedule !== undefined) definition.schedule = parsed.schedule;
+    if (parsed.enabled !== undefined) definition.enabled = parsed.enabled;
+    definition.updatedAt = nowIso();
+    store.reportDefinitions.set(definition.id, definition);
+    res.json({ data: definition });
+  });
+
+  router.post("/reports/definitions/:id/run", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = reportRunCreateSchema.parse(req.body);
+    const definition = store.reportDefinitions.get(req.params.id);
+    if (!definition) {
+      res.status(404).json({ error: "Report definition not found" });
+      return;
+    }
+    if (!definition.enabled) {
+      res.status(409).json({ error: "Report definition is disabled" });
+      return;
+    }
+    const run = runReportDefinition(definition, actor.id, parsed.trigger);
+    res.status(201).json({ data: run });
+  });
+
+  router.get("/reports/runs", (req, res) => {
+    const definitionId = req.query.definitionId ? String(req.query.definitionId) : undefined;
+    const data = [...store.reportRuns.values()]
+      .filter((run) => (definitionId ? run.definitionId === definitionId : true))
+      .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
+    res.json({ data });
+  });
+
+  router.get("/reports/runs/:id/export", (req, res) => {
+    const run = store.reportRuns.get(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: "Report run not found" });
+      return;
+    }
+    res.json({
+      data: {
+        runId: run.id,
+        definitionId: run.definitionId,
+        fileName: run.fileName,
+        format: run.format,
+        content: run.content
+      }
+    });
   });
 
   router.get("/search", (req, res) => {

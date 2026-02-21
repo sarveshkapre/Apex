@@ -110,6 +110,7 @@ export type TimelineEventType =
   | "policy.exception.updated"
   | "saas.reclaim.run"
   | "contract.renewal.run"
+  | "report.run"
   | "external-ticket.linked"
   | "connector.sync"
   | "config.published"
@@ -119,7 +120,7 @@ export interface TimelineEvent {
   id: string;
   tenantId: TenantId;
   workspaceId: WorkspaceId;
-  entityType: "object" | "relationship" | "work-item" | "workflow" | "approval" | "policy";
+  entityType: "object" | "relationship" | "work-item" | "workflow" | "approval" | "policy" | "report";
   entityId: string;
   eventType: TimelineEventType;
   actor: string;
@@ -600,4 +601,42 @@ export interface ContractRenewalRun {
   tasksCreated: number;
   exceptionsCreated: number;
   candidates: ContractRenewalCandidate[];
+}
+
+export interface ReportDefinition {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  description?: string;
+  objectType?: ObjectType;
+  filters: {
+    containsText?: string;
+    fieldEquals: Record<string, string | number | boolean>;
+  };
+  columns: string[];
+  schedule?: {
+    frequency: "manual" | "daily" | "weekly";
+    hourUtc?: number;
+  };
+  enabled: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReportRun {
+  id: string;
+  definitionId: string;
+  trigger: "manual" | "scheduled";
+  status: "success" | "failed";
+  startedAt: string;
+  completedAt: string;
+  scannedCount: number;
+  rowCount: number;
+  fileName: string;
+  format: "csv" | "json";
+  content: string;
+  ranBy: string;
+  error?: string;
 }

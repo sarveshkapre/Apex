@@ -571,4 +571,49 @@ describe("Apex API", () => {
     expect(runs.status).toBe(200);
     expect(runs.body.data.length).toBeGreaterThan(0);
   });
+
+  it("creates report definitions and executes report runs with export artifact", async () => {
+    const { app } = createApp();
+
+    const created = await request(app)
+      .post("/v1/reports/definitions")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: "Device inventory report",
+        description: "Inventory export for devices",
+        objectType: "Device",
+        filters: {
+          containsText: "asset_tag",
+          fieldEquals: {}
+        },
+        columns: ["id", "type", "asset_tag", "serial_number"],
+        schedule: {
+          frequency: "weekly",
+          hourUtc: 12
+        },
+        enabled: true
+      });
+    expect(created.status).toBe(201);
+    const definitionId = created.body.data.id as string;
+
+    const run = await request(app)
+      .post(`/v1/reports/definitions/${definitionId}/run`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ trigger: "manual" });
+    expect(run.status).toBe(201);
+    expect(run.body.data.rowCount).toBeGreaterThanOrEqual(1);
+
+    const listedRuns = await request(app).get("/v1/reports/runs").query({ definitionId });
+    expect(listedRuns.status).toBe(200);
+    expect(listedRuns.body.data.length).toBeGreaterThan(0);
+
+    const exportArtifact = await request(app).get(`/v1/reports/runs/${run.body.data.id}/export`);
+    expect(exportArtifact.status).toBe(200);
+    expect(typeof exportArtifact.body.data.content).toBe("string");
+    expect(exportArtifact.body.data.content.includes("asset_tag")).toBe(true);
+  });
 });

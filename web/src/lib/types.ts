@@ -245,6 +245,52 @@ export interface ConfigVersion {
   reason: string;
 }
 
+export interface ReportDefinition {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  name: string;
+  description?: string;
+  objectType?: string;
+  filters: {
+    containsText?: string;
+    fieldEquals: Record<string, string | number | boolean>;
+  };
+  columns: string[];
+  schedule?: {
+    frequency: "manual" | "daily" | "weekly";
+    hourUtc?: number;
+  };
+  enabled: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReportRun {
+  id: string;
+  definitionId: string;
+  trigger: "manual" | "scheduled";
+  status: "success" | "failed";
+  startedAt: string;
+  completedAt: string;
+  scannedCount: number;
+  rowCount: number;
+  fileName: string;
+  format: "csv" | "json";
+  content: string;
+  ranBy: string;
+  error?: string;
+}
+
+export interface ReportExportArtifact {
+  runId: string;
+  definitionId: string;
+  fileName: string;
+  format: "csv" | "json";
+  content: string;
+}
+
 export interface FieldRestriction {
   id: string;
   objectType: string;

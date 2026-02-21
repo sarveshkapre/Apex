@@ -25,6 +25,9 @@ import {
   PolicyException,
   PolicyEvaluationResult,
   QualityDashboard,
+  ReportDefinition,
+  ReportExportArtifact,
+  ReportRun,
   SaasReclaimPolicy,
   SaasReclaimRun,
   SavedView,
@@ -128,6 +131,127 @@ export const getDashboard = async (type: string): Promise<DashboardKpis> => {
     () => get<DashboardKpis>(`/dashboards/${encodeURIComponent(type)}`),
     mockDashboards[type] ?? mockDashboards.executive
   );
+};
+
+export const listReportDefinitions = async (): Promise<ReportDefinition[]> => {
+  return safe(() => get<ReportDefinition[]>("/reports/definitions"), []);
+};
+
+export const createReportDefinition = async (payload: {
+  name: string;
+  description?: string;
+  objectType?: string;
+  containsText?: string;
+  columns: string[];
+  scheduleFrequency?: "manual" | "daily" | "weekly";
+  scheduleHourUtc?: number;
+}) => {
+  return fetch(`${API_BASE}/reports/definitions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      name: payload.name,
+      description: payload.description,
+      objectType: payload.objectType,
+      filters: {
+        containsText: payload.containsText,
+        fieldEquals: {}
+      },
+      columns: payload.columns,
+      schedule: payload.scheduleFrequency
+        ? {
+            frequency: payload.scheduleFrequency,
+            hourUtc: payload.scheduleHourUtc
+          }
+        : undefined,
+      enabled: true
+    })
+  });
+};
+
+export const updateReportDefinition = async (
+  definitionId: string,
+  payload: Partial<{
+    name: string;
+    description: string;
+    objectType: string;
+    containsText: string;
+    columns: string[];
+    scheduleFrequency: "manual" | "daily" | "weekly";
+    scheduleHourUtc?: number;
+    enabled: boolean;
+  }>
+) => {
+  return fetch(`${API_BASE}/reports/definitions/${definitionId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      ...payload,
+      filters:
+        payload.containsText !== undefined
+          ? {
+              containsText: payload.containsText,
+              fieldEquals: {}
+            }
+          : undefined,
+      schedule:
+        payload.scheduleFrequency !== undefined
+          ? {
+              frequency: payload.scheduleFrequency,
+              hourUtc: payload.scheduleHourUtc
+            }
+          : undefined
+    })
+  });
+};
+
+export const runReportDefinition = async (
+  definitionId: string,
+  trigger: "manual" | "scheduled" = "manual"
+): Promise<ReportRun> => {
+  const response = await fetch(`${API_BASE}/reports/definitions/${definitionId}/run`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({ trigger })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to run report definition");
+  }
+  const json = (await response.json()) as ApiResponse<ReportRun>;
+  return json.data;
+};
+
+export const listReportRuns = async (definitionId?: string): Promise<ReportRun[]> => {
+  const query = definitionId ? `?definitionId=${encodeURIComponent(definitionId)}` : "";
+  return safe(() => get<ReportRun[]>(`/reports/runs${query}`), []);
+};
+
+export const exportReportRun = async (runId: string): Promise<ReportExportArtifact> => {
+  const response = await fetch(`${API_BASE}/reports/runs/${runId}/export`, {
+    headers: {
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    }
+  });
+  if (!response.ok) {
+    throw new Error("Failed to export report run");
+  }
+  const json = (await response.json()) as ApiResponse<ReportExportArtifact>;
+  return json.data;
 };
 
 export const getCatalog = async (): Promise<CatalogItem[]> => {

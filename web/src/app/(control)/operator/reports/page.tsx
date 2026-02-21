@@ -1,17 +1,17 @@
-import { Download, FileSpreadsheet, Save } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EvidenceExport } from "@/components/operator/evidence-export";
-import { Button } from "@/components/ui/button";
+import { ReportStudio } from "@/components/operator/report-studio";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { getDashboard, listWorkItems } from "@/lib/apex";
+import { getDashboard, listReportDefinitions, listReportRuns, listWorkItems } from "@/lib/apex";
 
 export default async function ReportsPage() {
-  const [exec, security, saas, workItems] = await Promise.all([
+  const [exec, security, saas, workItems, reportDefinitions, reportRuns] = await Promise.all([
     getDashboard("executive"),
     getDashboard("security"),
     getDashboard("saas"),
-    listWorkItems()
+    listWorkItems(),
+    listReportDefinitions(),
+    listReportRuns()
   ]);
 
   return (
@@ -33,20 +33,7 @@ export default async function ReportsPage() {
         </Card>
       </section>
 
-      <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
-        <CardHeader>
-          <CardTitle className="text-base">Report builder</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Input placeholder="Object filters (example: Device.compliance_state = noncompliant)" />
-          <Input placeholder="Relationship filters (example: Device assigned_to Person where status=terminated)" />
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="rounded-xl"><Save className="mr-2 h-4 w-4" />Save report</Button>
-            <Button variant="outline" className="rounded-xl"><FileSpreadsheet className="mr-2 h-4 w-4" />Schedule CSV</Button>
-            <Button variant="outline" className="rounded-xl"><Download className="mr-2 h-4 w-4" />Export filtered CSV</Button>
-          </div>
-        </CardContent>
-      </Card>
+      <ReportStudio initialDefinitions={reportDefinitions} initialRuns={reportRuns} />
 
       <EvidenceExport workItems={workItems} />
     </div>

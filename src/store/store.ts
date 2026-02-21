@@ -15,6 +15,8 @@ import {
   NotificationRule,
   PolicyDefinition,
   PolicyException,
+  ReportDefinition,
+  ReportRun,
   SaasReclaimPolicy,
   SaasReclaimRun,
   SavedView,
@@ -57,6 +59,8 @@ export class ApexStore {
   saasReclaimPolicies = new Map<string, SaasReclaimPolicy>();
   saasReclaimRuns = new Map<string, SaasReclaimRun>();
   contractRenewalRuns = new Map<string, ContractRenewalRun>();
+  reportDefinitions = new Map<string, ReportDefinition>();
+  reportRuns = new Map<string, ReportRun>();
 
   createId(): string {
     return uuidv4();

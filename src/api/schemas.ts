@@ -435,3 +435,49 @@ export const contractRenewalRunSchema = z.object({
   daysAhead: z.number().int().positive().max(365).default(90),
   mode: z.enum(["dry-run", "live"]).default("dry-run")
 });
+
+export const reportDefinitionCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  objectType: z.enum(coreObjectTypes).optional(),
+  filters: z
+    .object({
+      containsText: z.string().optional(),
+      fieldEquals: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({})
+    })
+    .default({ fieldEquals: {} }),
+  columns: z.array(z.string().min(1)).min(1).default(["id", "type"]),
+  schedule: z
+    .object({
+      frequency: z.enum(["manual", "daily", "weekly"]),
+      hourUtc: z.number().int().min(0).max(23).optional()
+    })
+    .optional(),
+  enabled: z.boolean().default(true)
+});
+
+export const reportDefinitionUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  objectType: z.enum(coreObjectTypes).optional(),
+  filters: z
+    .object({
+      containsText: z.string().optional(),
+      fieldEquals: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({})
+    })
+    .optional(),
+  columns: z.array(z.string().min(1)).min(1).optional(),
+  schedule: z
+    .object({
+      frequency: z.enum(["manual", "daily", "weekly"]),
+      hourUtc: z.number().int().min(0).max(23).optional()
+    })
+    .optional(),
+  enabled: z.boolean().optional()
+});
+
+export const reportRunCreateSchema = z.object({
+  trigger: z.enum(["manual", "scheduled"]).default("manual")
+});
