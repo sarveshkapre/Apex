@@ -483,6 +483,51 @@ export interface JmlJoinerExecutionResult {
   createdObjectIds: string[];
 }
 
+export type DeviceLifecycleStage = "request" | "fulfill" | "deploy" | "monitor" | "service" | "return" | "retire";
+
+export interface DeviceLifecycleStep {
+  id: string;
+  name: string;
+  riskLevel: "low" | "medium" | "high";
+  requiresApproval: boolean;
+}
+
+export interface DeviceLifecyclePlan {
+  deviceId?: string;
+  currentStage: DeviceLifecycleStage;
+  targetStage: DeviceLifecycleStage;
+  location?: string;
+  stockroom?: string;
+  assigneePersonId?: string;
+  remoteReturn: boolean;
+  riskLevel: "low" | "medium" | "high";
+  approvalsRequired: string[];
+  steps: DeviceLifecycleStep[];
+}
+
+export interface DeviceLifecycleRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  deviceId?: string;
+  requesterId: string;
+  plan: DeviceLifecyclePlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdObjectIds: string[];
+  createdAt: string;
+}
+
+export interface DeviceLifecycleExecutionResult {
+  run: DeviceLifecycleRun;
+  device: GraphObject;
+  workItem: WorkItem;
+  approvalIds: string[];
+  taskIds: string[];
+  createdObjectIds: string[];
+}
+
 export interface JmlMoverRun {
   id: string;
   mode: "preview" | "live";

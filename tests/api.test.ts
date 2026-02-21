@@ -1257,6 +1257,86 @@ describe("Apex API", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("generates device lifecycle preview for service stage", async () => {
+    const { app } = createApp();
+
+    const devices = await request(app).get("/v1/objects").query({ type: "Device" });
+    expect(devices.status).toBe(200);
+    const deviceId = devices.body.data[0].id as string;
+
+    const preview = await request(app)
+      .post("/v1/device-lifecycle/preview")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        deviceId,
+        targetStage: "service",
+        location: "San Francisco",
+        stockroom: "SF-HQ",
+        remoteReturn: true,
+        requesterId: "person-1",
+        issueSummary: "Battery replacement"
+      });
+
+    expect(preview.status).toBe(201);
+    expect(preview.body.data.plan.targetStage).toBe("service");
+    expect(preview.body.data.plan.steps.length).toBeGreaterThan(0);
+    expect(preview.body.data.plan.riskLevel).toBe("medium");
+  });
+
+  it("executes device lifecycle workflow for new device request and retire transition", async () => {
+    const { app } = createApp();
+
+    const created = await request(app)
+      .post("/v1/device-lifecycle/execute")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        targetStage: "request",
+        location: "Austin",
+        stockroom: "ATX-1",
+        remoteReturn: true,
+        requesterId: "person-1",
+        model: "ThinkPad T14",
+        vendor: "Lenovo",
+        reason: "New hire laptop request"
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.data.run.plan.targetStage).toBe("request");
+    expect(created.body.data.createdObjectIds.length).toBeGreaterThan(0);
+    const createdDeviceId = created.body.data.run.deviceId as string;
+
+    const retire = await request(app)
+      .post("/v1/device-lifecycle/execute")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        deviceId: createdDeviceId,
+        targetStage: "retire",
+        location: "Austin",
+        stockroom: "ATX-1",
+        remoteReturn: false,
+        requesterId: "person-1",
+        retirementReason: "End of refresh cycle",
+        reason: "Retire aging device"
+      });
+
+    expect(retire.status).toBe(201);
+    expect(retire.body.data.workItem.type).toBe("Change");
+    expect(retire.body.data.approvalIds.length).toBeGreaterThan(0);
+    expect(retire.body.data.taskIds.length).toBeGreaterThan(0);
+
+    const device = await request(app).get(`/v1/objects/${createdDeviceId}`);
+    expect(device.status).toBe(200);
+    expect(device.body.data.fields.lifecycle_stage).toBe("retire");
+    expect(device.body.data.fields.status).toBe("Disposed");
+
+    const runs = await request(app).get("/v1/device-lifecycle/runs").query({ deviceId: createdDeviceId });
+    expect(runs.status).toBe(200);
+    expect(runs.body.data.length).toBeGreaterThan(0);
+  });
+
   it("generates JML joiner preview with baseline entitlements and steps", async () => {
     const { app } = createApp();
 

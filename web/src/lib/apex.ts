@@ -14,6 +14,8 @@ import {
   ContractRenewalRun,
   CustomObjectSchema,
   DashboardKpis,
+  DeviceLifecycleExecutionResult,
+  DeviceLifecycleRun,
   DeviceAcknowledgementResult,
   EvidencePackage,
   ExternalTicketLink,
@@ -569,6 +571,70 @@ export const runReportDefinition = async (
     throw new Error("Failed to run report definition");
   }
   const json = (await response.json()) as ApiResponse<ReportRun>;
+  return json.data;
+};
+
+export const listDeviceLifecycleRuns = async (deviceId?: string): Promise<DeviceLifecycleRun[]> => {
+  const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : "";
+  return safe(() => get<DeviceLifecycleRun[]>(`/device-lifecycle/runs${query}`), []);
+};
+
+export const previewDeviceLifecycle = async (payload: {
+  deviceId?: string;
+  targetStage: "request" | "fulfill" | "deploy" | "monitor" | "service" | "return" | "retire";
+  location?: string;
+  stockroom?: string;
+  assigneePersonId?: string;
+  remoteReturn: boolean;
+  requesterId: string;
+  model?: string;
+  vendor?: string;
+  issueSummary?: string;
+  retirementReason?: string;
+}): Promise<DeviceLifecycleRun> => {
+  const response = await fetch(`${API_BASE}/device-lifecycle/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to generate device lifecycle preview");
+  }
+  const json = (await response.json()) as ApiResponse<DeviceLifecycleRun>;
+  return json.data;
+};
+
+export const executeDeviceLifecycle = async (payload: {
+  deviceId?: string;
+  targetStage: "request" | "fulfill" | "deploy" | "monitor" | "service" | "return" | "retire";
+  location?: string;
+  stockroom?: string;
+  assigneePersonId?: string;
+  remoteReturn: boolean;
+  requesterId: string;
+  model?: string;
+  vendor?: string;
+  issueSummary?: string;
+  retirementReason?: string;
+  reason: string;
+}): Promise<DeviceLifecycleExecutionResult> => {
+  const response = await fetch(`${API_BASE}/device-lifecycle/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to execute device lifecycle workflow");
+  }
+  const json = (await response.json()) as ApiResponse<DeviceLifecycleExecutionResult>;
   return json.data;
 };
 

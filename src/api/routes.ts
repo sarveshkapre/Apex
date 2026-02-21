@@ -9,6 +9,8 @@ import {
   ConnectorRun,
   ContractRenewalRun,
   CustomObjectSchema,
+  DeviceLifecyclePlan,
+  DeviceLifecycleRun,
   ExternalTicketComment,
   ExternalTicketLink,
   FieldRestriction,
@@ -59,6 +61,8 @@ import {
   deviceAcknowledgementSchema,
   csvPreviewSchema,
   customSchemaCreateSchema,
+  deviceLifecycleExecuteSchema,
+  deviceLifecyclePreviewSchema,
   exceptionActionSchema,
   externalTicketCommentSchema,
   externalTicketLinkCreateSchema,
@@ -888,6 +892,157 @@ export const createRoutes = (store: ApexStore): Router => {
         .filter(Boolean);
     }
     return [];
+  };
+
+  const buildDeviceLifecyclePlan = (input: {
+    deviceId?: string;
+    targetStage: "request" | "fulfill" | "deploy" | "monitor" | "service" | "return" | "retire";
+    location?: string;
+    stockroom?: string;
+    assigneePersonId?: string;
+    remoteReturn: boolean;
+    requesterId: string;
+    model?: string;
+    vendor?: string;
+    issueSummary?: string;
+    retirementReason?: string;
+  }): DeviceLifecyclePlan | null => {
+    const device = input.deviceId ? store.objects.get(input.deviceId) : undefined;
+    if (input.deviceId && (!device || device.type !== "Device")) {
+      return null;
+    }
+
+    const currentStage = String(device?.fields.lifecycle_stage ?? "request") as DeviceLifecyclePlan["currentStage"];
+    const targetStage = input.targetStage;
+
+    const riskLevel =
+      targetStage === "retire" ? "high" : targetStage === "service" || targetStage === "return" ? "medium" : "low";
+
+    const approvalsRequiredSet = new Set(
+      approvalsForRequest([...store.approvalMatrixRules.values()], "Change", riskLevel, undefined)
+    );
+    approvalsRequiredSet.add("manager");
+    if (targetStage === "retire") {
+      approvalsRequiredSet.add("security");
+      approvalsRequiredSet.add("finance");
+    }
+    if (targetStage === "service") {
+      approvalsRequiredSet.add("it");
+    }
+
+    const stageStepTemplates: Record<DeviceLifecyclePlan["targetStage"], DeviceLifecyclePlan["steps"]> = {
+      request: [
+        {
+          id: "capture-request-step",
+          name: "Capture request and procurement requirements",
+          riskLevel: "low",
+          requiresApproval: false
+        },
+        {
+          id: "budget-routing-step",
+          name: "Route for budget and model approval",
+          riskLevel: "medium",
+          requiresApproval: true
+        }
+      ],
+      fulfill: [
+        {
+          id: "receiving-step",
+          name: "Receive asset, tag, and link procurement references",
+          riskLevel: "low",
+          requiresApproval: false
+        },
+        {
+          id: "enrollment-step",
+          name: "Enroll in MDM and baseline security controls",
+          riskLevel: "medium",
+          requiresApproval: false
+        }
+      ],
+      deploy: [
+        {
+          id: "assignment-step",
+          name: "Assign device and capture custody acknowledgement",
+          riskLevel: "low",
+          requiresApproval: false
+        },
+        {
+          id: "delivery-step",
+          name: input.remoteReturn ? "Create shipment and tracking" : "Schedule in-office handoff",
+          riskLevel: "low",
+          requiresApproval: false
+        }
+      ],
+      monitor: [
+        {
+          id: "health-check-step",
+          name: "Run posture and patch compliance checks",
+          riskLevel: "low",
+          requiresApproval: false
+        },
+        {
+          id: "staleness-guard-step",
+          name: "Create follow-up if check-in staleness exceeds threshold",
+          riskLevel: "medium",
+          requiresApproval: false
+        }
+      ],
+      service: [
+        {
+          id: "triage-step",
+          name: "Create break/fix triage and warranty validation",
+          riskLevel: "medium",
+          requiresApproval: false
+        },
+        {
+          id: "repair-step",
+          name: "Route repair or replacement workflow",
+          riskLevel: "medium",
+          requiresApproval: true
+        }
+      ],
+      return: [
+        {
+          id: "kit-step",
+          name: input.remoteReturn ? "Generate return kit and shipping label" : "Schedule office return drop-off",
+          riskLevel: "low",
+          requiresApproval: false
+        },
+        {
+          id: "condition-step",
+          name: "Confirm return receipt and condition grading",
+          riskLevel: "medium",
+          requiresApproval: false
+        }
+      ],
+      retire: [
+        {
+          id: "wipe-verification-step",
+          name: "Verify wipe and security containment before disposal",
+          riskLevel: "high",
+          requiresApproval: true
+        },
+        {
+          id: "disposal-step",
+          name: "Record disposal certificate and close lifecycle",
+          riskLevel: "medium",
+          requiresApproval: true
+        }
+      ]
+    };
+
+    return {
+      deviceId: device?.id,
+      currentStage,
+      targetStage,
+      location: input.location ?? String(device?.fields.location ?? ""),
+      stockroom: input.stockroom ?? String(device?.fields.stockroom ?? ""),
+      assigneePersonId: input.assigneePersonId ?? String(device?.fields.assigned_to_person_id ?? ""),
+      remoteReturn: input.remoteReturn,
+      riskLevel,
+      approvalsRequired: [...approvalsRequiredSet],
+      steps: stageStepTemplates[targetStage]
+    };
   };
 
   const buildJmlJoinerPlan = (input: {
@@ -4228,6 +4383,319 @@ export const createRoutes = (store: ApexStore): Router => {
       return;
     }
     res.json({ data: run });
+  });
+
+  router.get("/device-lifecycle/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const deviceId = req.query.deviceId ? String(req.query.deviceId) : undefined;
+    const data = [...store.deviceLifecycleRuns.values()]
+      .filter((run) => (deviceId ? run.deviceId === deviceId : true))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    res.json({ data });
+  });
+
+  router.post("/device-lifecycle/preview", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = deviceLifecyclePreviewSchema.parse(req.body);
+    const plan = buildDeviceLifecyclePlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Device not found for lifecycle plan" });
+      return;
+    }
+    const run: DeviceLifecycleRun = {
+      id: store.createId(),
+      mode: "preview",
+      status: "planned",
+      deviceId: plan.deviceId,
+      requesterId: parsed.requesterId,
+      plan,
+      createdTaskIds: [],
+      createdApprovalIds: [],
+      createdObjectIds: [],
+      createdAt: nowIso()
+    };
+    store.deviceLifecycleRuns.set(run.id, run);
+    res.status(201).json({ data: run });
+  });
+
+  router.post("/device-lifecycle/execute", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = deviceLifecycleExecuteSchema.parse(req.body);
+    const plan = buildDeviceLifecyclePlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Device not found for lifecycle execution" });
+      return;
+    }
+
+    const approverByType: Record<string, string> = {
+      manager: "manager-approver",
+      "app-owner": "app-owner-approver",
+      security: "security-approver",
+      finance: "finance-approver",
+      it: "it-approver",
+      custom: "custom-approver"
+    };
+
+    for (const type of plan.approvalsRequired) {
+      const approverId = approverByType[type] ?? `${type}-approver`;
+      const sod = validateSod([...store.sodRules.values()], "Change", parsed.requesterId, approverId);
+      if (!sod.ok) {
+        res.status(409).json({ error: sod.reason ?? "Separation-of-duties validation failed" });
+        return;
+      }
+    }
+
+    const createdObjectIds: string[] = [];
+    let device: GraphObject | undefined = parsed.deviceId ? store.objects.get(parsed.deviceId) : undefined;
+    if (parsed.deviceId && (!device || device.type !== "Device")) {
+      res.status(404).json({ error: "Device not found for lifecycle execution" });
+      return;
+    }
+
+    if (!device) {
+      device = {
+        id: store.createId(),
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Device",
+        fields: {
+          asset_tag: `DL-${store.createId().slice(0, 8).toUpperCase()}`,
+          model: parsed.model ?? "Standard laptop",
+          vendor: parsed.vendor ?? "Preferred Vendor",
+          location: parsed.location ?? "Unassigned",
+          stockroom: parsed.stockroom ?? "Primary Stockroom",
+          lifecycle_stage: "request",
+          procurement_state: "requested",
+          status: "Requested"
+        },
+        provenance: {},
+        quality: {
+          freshness: 1,
+          completeness: 0.7,
+          consistency: 0.9,
+          coverage: 0.65
+        },
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.objects.set(device.id, device);
+      createdObjectIds.push(device.id);
+      store.pushTimeline({
+        tenantId: device.tenantId,
+        workspaceId: device.workspaceId,
+        entityType: "object",
+        entityId: device.id,
+        eventType: "object.created",
+        actor: actor.id,
+        createdAt: nowIso(),
+        payload: { source: "device-lifecycle.execute" }
+      });
+    }
+
+    const nextFields = { ...device.fields };
+    if (parsed.location) {
+      nextFields.location = parsed.location;
+    }
+    if (parsed.stockroom) {
+      nextFields.stockroom = parsed.stockroom;
+    }
+    if (parsed.model) {
+      nextFields.model = parsed.model;
+    }
+    if (parsed.vendor) {
+      nextFields.vendor = parsed.vendor;
+    }
+
+    switch (parsed.targetStage) {
+      case "request":
+        nextFields.lifecycle_stage = "request";
+        nextFields.procurement_state = "requested";
+        nextFields.status = "Requested";
+        nextFields.requested_at = nowIso();
+        break;
+      case "fulfill":
+        nextFields.lifecycle_stage = "fulfill";
+        nextFields.procurement_state = "received";
+        nextFields.enrollment_status = "enrolled";
+        nextFields.status = "In stock";
+        nextFields.received_at = nowIso();
+        break;
+      case "deploy":
+        nextFields.lifecycle_stage = "deploy";
+        nextFields.assigned_to_person_id = parsed.assigneePersonId ?? nextFields.assigned_to_person_id;
+        nextFields.assigned_date = nowIso();
+        nextFields.enrollment_status = "active";
+        nextFields.status = "Active";
+        nextFields.deployment_mode = parsed.remoteReturn ? "remote-shipment" : "office-handoff";
+        break;
+      case "monitor":
+        nextFields.lifecycle_stage = "monitor";
+        nextFields.status = "Active";
+        nextFields.compliance_state = nextFields.compliance_state ?? "compliant";
+        nextFields.patch_state = nextFields.patch_state ?? "up-to-date";
+        nextFields.last_checkin = nowIso();
+        break;
+      case "service":
+        nextFields.lifecycle_stage = "service";
+        nextFields.status = "Under repair";
+        nextFields.service_issue = parsed.issueSummary ?? "General repair request";
+        nextFields.service_requested_at = nowIso();
+        break;
+      case "return":
+        nextFields.lifecycle_stage = "return";
+        nextFields.status = "Return required";
+        nextFields.return_required = true;
+        nextFields.return_mode = parsed.remoteReturn ? "return-kit" : "office-return";
+        nextFields.return_due_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        break;
+      case "retire":
+        nextFields.lifecycle_stage = "retire";
+        nextFields.status = "Disposed";
+        nextFields.retirement_reason = parsed.retirementReason ?? "Lifecycle complete";
+        nextFields.wipe_verified_at = nowIso();
+        nextFields.disposed_at = nowIso();
+        break;
+      default:
+        break;
+    }
+
+    device.fields = nextFields;
+    device.updatedAt = nowIso();
+    store.objects.set(device.id, device);
+
+    const workItemType: WorkItem["type"] =
+      parsed.targetStage === "service" ? "Incident" : parsed.targetStage === "request" ? "Request" : "Change";
+
+    const workItem: WorkItem = {
+      id: store.createId(),
+      tenantId: device.tenantId,
+      workspaceId: device.workspaceId,
+      type: workItemType,
+      status: "Submitted",
+      priority: plan.riskLevel === "high" ? "P1" : plan.riskLevel === "medium" ? "P2" : "P3",
+      title: `Device lifecycle ${parsed.targetStage}: ${String(device.fields.asset_tag ?? device.id)}`,
+      description: parsed.reason,
+      requesterId: parsed.requesterId,
+      assignmentGroup: "Endpoint Operations",
+      linkedObjectIds: [device.id],
+      tags: ["device-lifecycle", parsed.targetStage],
+      comments: [
+        {
+          id: store.createId(),
+          authorId: actor.id,
+          body: `Lifecycle transition ${plan.currentStage} -> ${parsed.targetStage}`,
+          mentions: [],
+          createdAt: nowIso()
+        }
+      ],
+      attachments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.workItems.set(workItem.id, workItem);
+
+    const createdApprovalIds = plan.approvalsRequired.map((type) => {
+      const approval = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        workItemId: workItem.id,
+        type,
+        approverId: approverByType[type] ?? `${type}-approver`,
+        decision: "pending" as const,
+        createdAt: nowIso()
+      };
+      store.approvals.set(approval.id, approval);
+      return approval.id;
+    });
+
+    const assignmentGroupByStepId = (stepId: string): string => {
+      if (stepId.includes("repair") || stepId.includes("triage")) {
+        return "Endpoint Service";
+      }
+      if (stepId.includes("wipe") || stepId.includes("disposal")) {
+        return "Security Operations";
+      }
+      if (stepId.includes("kit") || stepId.includes("condition")) {
+        return "Endpoint Logistics";
+      }
+      return "Endpoint Operations";
+    };
+
+    const createdTaskIds: string[] = [];
+    for (const step of plan.steps) {
+      const task: WorkItem = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        type: "Task",
+        status: "Submitted",
+        priority: step.riskLevel === "high" ? "P1" : step.riskLevel === "medium" ? "P2" : "P3",
+        title: `Device lifecycle task: ${step.name}`,
+        description: `Execute lifecycle step ${step.id}.`,
+        requesterId: parsed.requesterId,
+        assignmentGroup: assignmentGroupByStepId(step.id),
+        linkedObjectIds: [device.id, workItem.id],
+        tags: ["device-lifecycle", "task", step.id],
+        comments: [],
+        attachments: [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.workItems.set(task.id, task);
+      createdTaskIds.push(task.id);
+    }
+
+    const run: DeviceLifecycleRun = {
+      id: store.createId(),
+      mode: "live",
+      status: "executed",
+      deviceId: device.id,
+      requesterId: parsed.requesterId,
+      plan: {
+        ...plan,
+        deviceId: device.id
+      },
+      linkedWorkItemId: workItem.id,
+      createdTaskIds,
+      createdApprovalIds,
+      createdObjectIds,
+      createdAt: nowIso()
+    };
+    store.deviceLifecycleRuns.set(run.id, run);
+
+    store.pushTimeline({
+      tenantId: device.tenantId,
+      workspaceId: device.workspaceId,
+      entityType: "workflow",
+      entityId: run.id,
+      eventType: "device.lifecycle.executed",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        deviceId: device.id,
+        workItemId: workItem.id,
+        currentStage: plan.currentStage,
+        targetStage: parsed.targetStage,
+        riskLevel: plan.riskLevel,
+        approvals: createdApprovalIds.length,
+        tasks: createdTaskIds.length
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        run,
+        device,
+        workItem,
+        approvalIds: createdApprovalIds,
+        taskIds: createdTaskIds,
+        createdObjectIds
+      }
+    });
   });
 
   router.get("/jml/joiner/runs", (req, res) => {

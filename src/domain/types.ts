@@ -114,6 +114,7 @@ export type TimelineEventType =
   | "jml.joiner.executed"
   | "jml.mover.executed"
   | "jml.leaver.executed"
+  | "device.lifecycle.executed"
   | "object.merged"
   | "object.merge.reverted"
   | "external-ticket.linked"
@@ -679,6 +680,42 @@ export interface JmlJoinerRun {
   personId?: string;
   requesterId: string;
   plan: JmlJoinerPlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdObjectIds: string[];
+  createdAt: string;
+}
+
+export type DeviceLifecycleStage = "request" | "fulfill" | "deploy" | "monitor" | "service" | "return" | "retire";
+
+export interface DeviceLifecycleStep {
+  id: string;
+  name: string;
+  riskLevel: RiskLevel;
+  requiresApproval: boolean;
+}
+
+export interface DeviceLifecyclePlan {
+  deviceId?: string;
+  currentStage: DeviceLifecycleStage;
+  targetStage: DeviceLifecycleStage;
+  location?: string;
+  stockroom?: string;
+  assigneePersonId?: string;
+  remoteReturn: boolean;
+  riskLevel: RiskLevel;
+  approvalsRequired: ApprovalType[];
+  steps: DeviceLifecycleStep[];
+}
+
+export interface DeviceLifecycleRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  deviceId?: string;
+  requesterId: string;
+  plan: DeviceLifecyclePlan;
   linkedWorkItemId?: string;
   createdTaskIds: string[];
   createdApprovalIds: string[];

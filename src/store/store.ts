@@ -7,6 +7,7 @@ import {
   ConnectorRun,
   ContractRenewalRun,
   CustomObjectSchema,
+  DeviceLifecycleRun,
   FieldRestriction,
   ExternalTicketComment,
   ExternalTicketLink,
@@ -68,6 +69,7 @@ export class ApexStore {
   jmlJoinerRuns = new Map<string, JmlJoinerRun>();
   jmlMoverRuns = new Map<string, JmlMoverRun>();
   jmlLeaverRuns = new Map<string, JmlLeaverRun>();
+  deviceLifecycleRuns = new Map<string, DeviceLifecycleRun>();
   objectMergeRuns = new Map<string, ObjectMergeRun>();
   objectMergeUndo = new Map<
     string,

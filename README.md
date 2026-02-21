@@ -19,6 +19,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Global search now supports facet and filter-aware result retrieval
 - Guided lost/stolen device reporting with approval-gated lock/wipe action planning
 - Device custody acknowledgements for receipt and return shipment
+- Device lifecycle orchestration planner/executor (request, fulfill, deploy, monitor, service, return, retire)
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
 - Approval timeout lifecycle with expiry and escalation to fallback approver
@@ -103,6 +104,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Workflow surface includes JML Mover planner with entitlement diff preview and execute path
 - Workflow surface includes JML Leaver planner/executor with legal hold, VIP, regional compliance, and unrecovered asset containment handling
 - Workflow surface includes JML Joiner planner/executor for identity/device/app onboarding plans with approval-aware risk modeling
+- Workflow surface includes Device Lifecycle planner/executor for staged transitions with approval-aware risk gates and execution history
 - Asset Graph includes duplicate merge workspace with impact preview and reversible merge runs
 - Asset Graph includes provenance override workspace for controlled field-level manual overrides
 - Asset Graph includes object action workspace for relationship management and object-context workflow starts
@@ -143,6 +145,7 @@ npm --prefix web run build
 - `POST /v1/objects/:id/children`, `POST /v1/objects/:id/workflows/start`
 - `POST /v1/devices/:id/lost-stolen/report`
 - `POST /v1/devices/:id/acknowledgements`
+- `GET /v1/device-lifecycle/runs`, `POST /v1/device-lifecycle/preview`, `POST /v1/device-lifecycle/execute`
 - `GET /v1/timeline/:entityId`
 - `POST /v1/signals/preview`, `POST /v1/signals/ingest`
 - `GET /v1/quality`

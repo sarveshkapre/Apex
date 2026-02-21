@@ -655,3 +655,32 @@ export const jmlLeaverExecuteSchema = z.object({
   requesterId: z.string().min(1),
   reason: z.string().min(1)
 });
+
+export const deviceLifecyclePreviewSchema = z.object({
+  deviceId: z.string().min(1).optional(),
+  targetStage: z.enum(["request", "fulfill", "deploy", "monitor", "service", "return", "retire"]),
+  location: z.string().optional(),
+  stockroom: z.string().optional(),
+  assigneePersonId: z.string().optional(),
+  remoteReturn: z.boolean().default(true),
+  requesterId: z.string().min(1),
+  model: z.string().optional(),
+  vendor: z.string().optional(),
+  issueSummary: z.string().optional(),
+  retirementReason: z.string().optional()
+});
+
+export const deviceLifecycleExecuteSchema = z.object({
+  deviceId: z.string().min(1).optional(),
+  targetStage: z.enum(["request", "fulfill", "deploy", "monitor", "service", "return", "retire"]),
+  location: z.string().optional(),
+  stockroom: z.string().optional(),
+  assigneePersonId: z.string().optional(),
+  remoteReturn: z.boolean().default(true),
+  requesterId: z.string().min(1),
+  model: z.string().optional(),
+  vendor: z.string().optional(),
+  issueSummary: z.string().optional(),
+  retirementReason: z.string().optional(),
+  reason: z.string().min(1)
+});

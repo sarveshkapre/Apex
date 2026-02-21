@@ -1,16 +1,26 @@
 import { AlertTriangle } from "lucide-react";
+import { DeviceLifecycleLab } from "@/components/operator/device-lifecycle-lab";
 import { JoinerLab } from "@/components/operator/joiner-lab";
 import { PageHeader } from "@/components/app/page-header";
 import { LeaverLab } from "@/components/operator/leaver-lab";
 import { MoverLab } from "@/components/operator/mover-lab";
 import { WorkflowStudio } from "@/components/operator/workflow-studio";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listJmlJoinerRuns, listJmlLeaverRuns, listJmlMoverRuns, listObjectsByType, listWorkflowDefinitions } from "@/lib/apex";
+import {
+  listDeviceLifecycleRuns,
+  listJmlJoinerRuns,
+  listJmlLeaverRuns,
+  listJmlMoverRuns,
+  listObjectsByType,
+  listWorkflowDefinitions
+} from "@/lib/apex";
 
 export default async function WorkflowsPage() {
-  const [workflows, people, joinerRuns, moverRuns, leaverRuns] = await Promise.all([
+  const [workflows, people, devices, deviceLifecycleRuns, joinerRuns, moverRuns, leaverRuns] = await Promise.all([
     listWorkflowDefinitions(),
     listObjectsByType("Person"),
+    listObjectsByType("Device"),
+    listDeviceLifecycleRuns(),
     listJmlJoinerRuns(),
     listJmlMoverRuns(),
     listJmlLeaverRuns()
@@ -25,6 +35,7 @@ export default async function WorkflowsPage() {
 
       <WorkflowStudio initial={workflows} />
 
+      <DeviceLifecycleLab devices={devices} initialRuns={deviceLifecycleRuns} />
       <JoinerLab initialRuns={joinerRuns} />
       <MoverLab people={people} initialRuns={moverRuns} />
       <LeaverLab people={people} initialRuns={leaverRuns} />
