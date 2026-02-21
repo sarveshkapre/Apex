@@ -585,6 +585,37 @@ export const reportRunCreateSchema = z.object({
   trigger: z.enum(["manual", "scheduled"]).default("manual")
 });
 
+export const jmlJoinerPreviewSchema = z.object({
+  existingPersonId: z.string().min(1).optional(),
+  legalName: z.string().min(1),
+  email: z.string().email(),
+  startDate: z.string().datetime().optional(),
+  location: z.string().min(1),
+  role: z.string().min(1),
+  managerId: z.string().optional(),
+  employmentType: z.enum(["employee", "contractor", "intern"]).default("employee"),
+  requiredApps: z.array(z.string().min(1)).default([]),
+  deviceTypePreference: z.enum(["laptop", "desktop", "phone", "tablet"]).default("laptop"),
+  remote: z.boolean().default(true),
+  requesterId: z.string().min(1)
+});
+
+export const jmlJoinerExecuteSchema = z.object({
+  existingPersonId: z.string().min(1).optional(),
+  legalName: z.string().min(1),
+  email: z.string().email(),
+  startDate: z.string().datetime().optional(),
+  location: z.string().min(1),
+  role: z.string().min(1),
+  managerId: z.string().optional(),
+  employmentType: z.enum(["employee", "contractor", "intern"]).default("employee"),
+  requiredApps: z.array(z.string().min(1)).default([]),
+  deviceTypePreference: z.enum(["laptop", "desktop", "phone", "tablet"]).default("laptop"),
+  remote: z.boolean().default(true),
+  requesterId: z.string().min(1),
+  reason: z.string().min(1)
+});
+
 export const jmlMoverPreviewSchema = z.object({
   personId: z.string().min(1),
   targetRole: z.string().min(1),

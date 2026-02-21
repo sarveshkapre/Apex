@@ -23,6 +23,8 @@ import {
   GraphRelationship,
   GlobalSearchResponse,
   IntegrationHealth,
+  JmlJoinerExecutionResult,
+  JmlJoinerRun,
   JmlLeaverExecutionResult,
   JmlLeaverRun,
   JmlMoverExecutionResult,
@@ -567,6 +569,79 @@ export const runReportDefinition = async (
     throw new Error("Failed to run report definition");
   }
   const json = (await response.json()) as ApiResponse<ReportRun>;
+  return json.data;
+};
+
+export const listJmlJoinerRuns = async (params?: { personId?: string; email?: string }): Promise<JmlJoinerRun[]> => {
+  const query = new URLSearchParams();
+  if (params?.personId) {
+    query.set("personId", params.personId);
+  }
+  if (params?.email) {
+    query.set("email", params.email);
+  }
+  const suffix = query.toString().length > 0 ? `?${query.toString()}` : "";
+  return safe(() => get<JmlJoinerRun[]>(`/jml/joiner/runs${suffix}`), []);
+};
+
+export const previewJmlJoiner = async (payload: {
+  existingPersonId?: string;
+  legalName: string;
+  email: string;
+  startDate?: string;
+  location: string;
+  role: string;
+  managerId?: string;
+  employmentType: "employee" | "contractor" | "intern";
+  requiredApps: string[];
+  deviceTypePreference: "laptop" | "desktop" | "phone" | "tablet";
+  remote: boolean;
+  requesterId: string;
+}): Promise<JmlJoinerRun> => {
+  const response = await fetch(`${API_BASE}/jml/joiner/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to generate joiner preview");
+  }
+  const json = (await response.json()) as ApiResponse<JmlJoinerRun>;
+  return json.data;
+};
+
+export const executeJmlJoiner = async (payload: {
+  existingPersonId?: string;
+  legalName: string;
+  email: string;
+  startDate?: string;
+  location: string;
+  role: string;
+  managerId?: string;
+  employmentType: "employee" | "contractor" | "intern";
+  requiredApps: string[];
+  deviceTypePreference: "laptop" | "desktop" | "phone" | "tablet";
+  remote: boolean;
+  requesterId: string;
+  reason: string;
+}): Promise<JmlJoinerExecutionResult> => {
+  const response = await fetch(`${API_BASE}/jml/joiner/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to execute joiner workflow");
+  }
+  const json = (await response.json()) as ApiResponse<JmlJoinerExecutionResult>;
   return json.data;
 };
 

@@ -102,6 +102,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Policy exception lifecycle controls (waive/renew/resolve/reopen) in Policies & Compliance
 - Workflow surface includes JML Mover planner with entitlement diff preview and execute path
 - Workflow surface includes JML Leaver planner/executor with legal hold, VIP, regional compliance, and unrecovered asset containment handling
+- Workflow surface includes JML Joiner planner/executor for identity/device/app onboarding plans with approval-aware risk modeling
 - Asset Graph includes duplicate merge workspace with impact preview and reversible merge runs
 - Asset Graph includes provenance override workspace for controlled field-level manual overrides
 - Asset Graph includes object action workspace for relationship management and object-context workflow starts
@@ -153,6 +154,7 @@ npm --prefix web run build
 - `GET/POST/PATCH /v1/reports/definitions`, `POST /v1/reports/definitions/:id/run`, `GET /v1/reports/runs`, `GET /v1/reports/runs/:id/export`
 - `GET /v1/jml/mover/runs`, `POST /v1/jml/mover/preview`, `POST /v1/jml/mover/execute`
 - `GET /v1/jml/leaver/runs`, `POST /v1/jml/leaver/preview`, `POST /v1/jml/leaver/execute`
+- `GET /v1/jml/joiner/runs`, `POST /v1/jml/joiner/preview`, `POST /v1/jml/joiner/execute`
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `POST /v1/work-items/bulk`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`

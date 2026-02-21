@@ -15,6 +15,8 @@ import {
   ApprovalRecord,
   GraphObject,
   GraphRelationship,
+  JmlJoinerPlan,
+  JmlJoinerRun,
   JmlLeaverPlan,
   JmlLeaverRun,
   JmlMoverPlan,
@@ -86,6 +88,8 @@ import {
   contractRenewalOverviewSchema,
   contractRenewalRunSchema,
   signalIngestSchema,
+  jmlJoinerPreviewSchema,
+  jmlJoinerExecuteSchema,
   saasReclaimPolicyCreateSchema,
   saasReclaimPolicyUpdateSchema,
   saasReclaimRunCreateSchema,
@@ -884,6 +888,121 @@ export const createRoutes = (store: ApexStore): Router => {
         .filter(Boolean);
     }
     return [];
+  };
+
+  const buildJmlJoinerPlan = (input: {
+    existingPersonId?: string;
+    legalName: string;
+    email: string;
+    startDate?: string;
+    location: string;
+    role: string;
+    managerId?: string;
+    employmentType: "employee" | "contractor" | "intern";
+    requiredApps: string[];
+    deviceTypePreference: "laptop" | "desktop" | "phone" | "tablet";
+    remote: boolean;
+    requesterId: string;
+  }): JmlJoinerPlan | null => {
+    const existingPerson =
+      input.existingPersonId && store.objects.has(input.existingPersonId)
+        ? store.objects.get(input.existingPersonId)
+        : undefined;
+
+    if (input.existingPersonId && (!existingPerson || existingPerson.type !== "Person")) {
+      return null;
+    }
+
+    const role = input.role.trim();
+    const roleKey = normalizeRoleKey(role);
+    const baseline = roleEntitlementCatalog[roleKey] ?? { groups: ["org-default"], apps: ["Slack"] };
+    const requestedApps = [...new Set(input.requiredApps.map((app) => app.trim()).filter(Boolean))];
+    const combinedApps = [...new Set([...baseline.apps, ...requestedApps])];
+    const privilegedAppRequest = combinedApps.some((app) => app.toLowerCase().includes("admin"));
+    const riskLevel =
+      privilegedAppRequest || input.deviceTypePreference === "desktop"
+        ? "high"
+        : input.employmentType === "contractor" || requestedApps.length >= 3
+          ? "medium"
+          : "low";
+
+    const approvals = new Set(
+      approvalsForRequest([...store.approvalMatrixRules.values()], "Request", riskLevel, undefined)
+    );
+    approvals.add("manager");
+    if (input.employmentType === "contractor" || privilegedAppRequest) {
+      approvals.add("security");
+    }
+    if (input.deviceTypePreference === "desktop") {
+      approvals.add("finance");
+    }
+
+    const startDate = input.startDate ?? nowIso();
+    const managerId =
+      input.managerId ??
+      String(existingPerson?.fields.manager ?? existingPerson?.fields.manager_id ?? "manager-approver");
+    const personId = existingPerson?.id;
+
+    const steps: JmlJoinerPlan["steps"] = [
+      {
+        id: "identity-prestage-step",
+        name: "Create or pre-stage identity",
+        riskLevel: "medium",
+        requiresApproval: false
+      },
+      {
+        id: "group-baseline-step",
+        name: "Assign baseline groups",
+        riskLevel: "medium",
+        requiresApproval: false
+      },
+      {
+        id: "app-provision-step",
+        name: "Provision baseline and requested SaaS access",
+        riskLevel: requestedApps.length > 0 ? "medium" : "low",
+        requiresApproval: requestedApps.length > 0
+      },
+      {
+        id: "device-fulfillment-step",
+        name: input.remote ? "Allocate device and prepare shipment" : "Allocate device for in-office pickup",
+        riskLevel: "low",
+        requiresApproval: false
+      },
+      {
+        id: "compliance-welcome-step",
+        name: "Run compliance baseline and publish welcome checklist",
+        riskLevel: "low",
+        requiresApproval: false
+      }
+    ];
+
+    if (riskLevel === "high") {
+      steps.push({
+        id: "security-attestation-step",
+        name: "Collect security attestation before elevated access activation",
+        riskLevel: "high",
+        requiresApproval: true
+      });
+    }
+
+    return {
+      personId,
+      legalName: input.legalName,
+      email: input.email,
+      startDate,
+      location: input.location,
+      role,
+      managerId,
+      employmentType: input.employmentType,
+      deviceTypePreference: input.deviceTypePreference,
+      remote: input.remote,
+      baselineGroups: baseline.groups,
+      baselineApps: baseline.apps,
+      requestedApps,
+      riskLevel,
+      approvalsRequired: [...approvals],
+      steps
+    };
   };
 
   const buildJmlMoverPlan = (input: {
@@ -4109,6 +4228,390 @@ export const createRoutes = (store: ApexStore): Router => {
       return;
     }
     res.json({ data: run });
+  });
+
+  router.get("/jml/joiner/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const personId = req.query.personId ? String(req.query.personId) : undefined;
+    const email = req.query.email ? String(req.query.email).toLowerCase() : undefined;
+    const data = [...store.jmlJoinerRuns.values()]
+      .filter((run) => {
+        if (personId && run.personId !== personId) {
+          return false;
+        }
+        if (email && String(run.plan.email).toLowerCase() !== email) {
+          return false;
+        }
+        return true;
+      })
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    res.json({ data });
+  });
+
+  router.post("/jml/joiner/preview", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = jmlJoinerPreviewSchema.parse(req.body);
+    const plan = buildJmlJoinerPlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Person not found for joiner plan" });
+      return;
+    }
+    const run: JmlJoinerRun = {
+      id: store.createId(),
+      mode: "preview",
+      status: "planned",
+      personId: plan.personId,
+      requesterId: parsed.requesterId,
+      plan,
+      createdTaskIds: [],
+      createdApprovalIds: [],
+      createdObjectIds: [],
+      createdAt: nowIso()
+    };
+    store.jmlJoinerRuns.set(run.id, run);
+    res.status(201).json({ data: run });
+  });
+
+  router.post("/jml/joiner/execute", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = jmlJoinerExecuteSchema.parse(req.body);
+    const plan = buildJmlJoinerPlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Person not found for joiner execution" });
+      return;
+    }
+
+    const approverByType: Record<string, string> = {
+      manager: plan.managerId ?? "manager-approver",
+      "app-owner": "app-owner-approver",
+      security: "security-approver",
+      finance: "finance-approver",
+      it: "it-approver",
+      custom: "custom-approver"
+    };
+
+    for (const type of plan.approvalsRequired) {
+      const approverId = approverByType[type] ?? `${type}-approver`;
+      const sod = validateSod([...store.sodRules.values()], "Request", parsed.requesterId, approverId);
+      if (!sod.ok) {
+        res.status(409).json({ error: sod.reason ?? "Separation-of-duties validation failed" });
+        return;
+      }
+    }
+
+    const startDateParsed = parseIsoDate(plan.startDate);
+    const startActive = startDateParsed ? startDateParsed.getTime() <= Date.now() : true;
+
+    let person: GraphObject;
+    if (plan.personId) {
+      const existing = store.objects.get(plan.personId);
+      if (!existing || existing.type !== "Person") {
+        res.status(404).json({ error: "Person not found for joiner execution" });
+        return;
+      }
+      existing.fields = {
+        ...existing.fields,
+        legal_name: plan.legalName,
+        email: plan.email,
+        role_profile: plan.role,
+        job_title: plan.role,
+        department: existing.fields.department ?? "Engineering",
+        location: plan.location,
+        manager: plan.managerId,
+        employment_type: plan.employmentType,
+        status: startActive ? "active" : "pre-hire",
+        start_date: plan.startDate
+      };
+      existing.updatedAt = nowIso();
+      store.objects.set(existing.id, existing);
+      person = existing;
+    } else {
+      person = {
+        id: store.createId(),
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Person",
+        fields: {
+          legal_name: plan.legalName,
+          email: plan.email,
+          role_profile: plan.role,
+          job_title: plan.role,
+          department: "Engineering",
+          location: plan.location,
+          manager: plan.managerId,
+          employment_type: plan.employmentType,
+          status: startActive ? "active" : "pre-hire",
+          start_date: plan.startDate
+        },
+        provenance: {},
+        quality: {
+          freshness: 1,
+          completeness: 0.8,
+          consistency: 0.9,
+          coverage: 0.7
+        },
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.objects.set(person.id, person);
+      store.pushTimeline({
+        tenantId: person.tenantId,
+        workspaceId: person.workspaceId,
+        entityType: "object",
+        entityId: person.id,
+        eventType: "object.created",
+        actor: actor.id,
+        createdAt: nowIso(),
+        payload: { source: "jml.joiner.execute" }
+      });
+    }
+
+    const workItem: WorkItem = {
+      id: store.createId(),
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      type: "Request",
+      status: "Submitted",
+      priority: plan.riskLevel === "high" ? "P1" : plan.riskLevel === "medium" ? "P2" : "P3",
+      title: `JML joiner request: ${plan.legalName}`,
+      description: parsed.reason,
+      requesterId: parsed.requesterId,
+      assignmentGroup: "Onboarding Operations",
+      linkedObjectIds: [person.id],
+      tags: ["jml", "joiner", "onboarding", plan.deviceTypePreference],
+      comments: [
+        {
+          id: store.createId(),
+          authorId: actor.id,
+          body: `Joiner execution requested for ${plan.legalName} (${plan.role}) starting ${plan.startDate}.`,
+          mentions: [],
+          createdAt: nowIso()
+        }
+      ],
+      attachments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.workItems.set(workItem.id, workItem);
+
+    const createdApprovalIds = plan.approvalsRequired.map((type) => {
+      const approval = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        workItemId: workItem.id,
+        type,
+        approverId: approverByType[type] ?? `${type}-approver`,
+        decision: "pending" as const,
+        createdAt: nowIso()
+      };
+      store.approvals.set(approval.id, approval);
+      return approval.id;
+    });
+
+    const createdObjectIds: string[] = [];
+    if (!plan.personId) {
+      createdObjectIds.push(person.id);
+    }
+
+    const identity: GraphObject = {
+      id: store.createId(),
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      type: "Identity",
+      fields: {
+        provider: "PrimaryIdP",
+        username: plan.email,
+        email: plan.email,
+        status: startActive ? "active" : "suspended",
+        mfa_enabled: false,
+        created_at: nowIso()
+      },
+      provenance: {},
+      quality: {
+        freshness: 1,
+        completeness: 0.75,
+        consistency: 0.9,
+        coverage: 0.7
+      },
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.objects.set(identity.id, identity);
+    createdObjectIds.push(identity.id);
+
+    const identityRelationship: GraphRelationship = {
+      id: store.createId(),
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      type: "has_identity",
+      fromObjectId: person.id,
+      toObjectId: identity.id,
+      createdAt: nowIso(),
+      createdBy: actor.id
+    };
+    store.relationships.set(identityRelationship.id, identityRelationship);
+
+    const appsToProvision = [...new Set([...plan.baselineApps, ...plan.requestedApps])];
+    for (const appName of appsToProvision) {
+      const account: GraphObject = {
+        id: store.createId(),
+        tenantId: person.tenantId,
+        workspaceId: person.workspaceId,
+        type: "SaaSAccount",
+        fields: {
+          app: appName,
+          person: person.id,
+          status: "provisioning",
+          created_at: nowIso()
+        },
+        provenance: {},
+        quality: {
+          freshness: 0.9,
+          completeness: 0.7,
+          consistency: 0.9,
+          coverage: 0.7
+        },
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.objects.set(account.id, account);
+      createdObjectIds.push(account.id);
+
+      const relationship: GraphRelationship = {
+        id: store.createId(),
+        tenantId: person.tenantId,
+        workspaceId: person.workspaceId,
+        type: "has_account",
+        fromObjectId: person.id,
+        toObjectId: account.id,
+        createdAt: nowIso(),
+        createdBy: actor.id
+      };
+      store.relationships.set(relationship.id, relationship);
+    }
+
+    const device: GraphObject = {
+      id: store.createId(),
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      type: "Device",
+      fields: {
+        asset_tag: `NEW-${Math.floor(Math.random() * 100000)}`,
+        device_type: plan.deviceTypePreference,
+        enrollment_status: "pending",
+        compliance_state: "pending",
+        assigned_date: plan.startDate,
+        location: plan.location,
+        shipping_state: plan.remote ? "pending-shipment" : "pickup-scheduled",
+        assigned_to_person_id: person.id
+      },
+      provenance: {},
+      quality: {
+        freshness: 0.9,
+        completeness: 0.75,
+        consistency: 0.92,
+        coverage: 0.72
+      },
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.objects.set(device.id, device);
+    createdObjectIds.push(device.id);
+
+    const assignmentRelationship: GraphRelationship = {
+      id: store.createId(),
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      type: "assigned_to",
+      fromObjectId: device.id,
+      toObjectId: person.id,
+      createdAt: nowIso(),
+      createdBy: actor.id
+    };
+    store.relationships.set(assignmentRelationship.id, assignmentRelationship);
+
+    const assignmentGroupByStepId: Record<string, string> = {
+      "identity-prestage-step": "Identity Operations",
+      "group-baseline-step": "Identity Operations",
+      "app-provision-step": "Access Operations",
+      "device-fulfillment-step": "Endpoint Operations",
+      "compliance-welcome-step": "Onboarding Operations",
+      "security-attestation-step": "Security Operations"
+    };
+
+    const createdTaskIds: string[] = [];
+    for (const step of plan.steps) {
+      const task: WorkItem = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        type: "Task",
+        status: "Submitted",
+        priority: step.riskLevel === "high" ? "P1" : step.riskLevel === "medium" ? "P2" : "P3",
+        title: `Joiner task: ${step.name}`,
+        description: `Execute joiner step ${step.id}.`,
+        requesterId: parsed.requesterId,
+        assignmentGroup: assignmentGroupByStepId[step.id] ?? "Onboarding Operations",
+        linkedObjectIds: [person.id, workItem.id, device.id],
+        tags: ["jml", "joiner", "task", step.id],
+        comments: [],
+        attachments: [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.workItems.set(task.id, task);
+      createdTaskIds.push(task.id);
+    }
+
+    const run: JmlJoinerRun = {
+      id: store.createId(),
+      mode: "live",
+      status: "executed",
+      personId: person.id,
+      requesterId: parsed.requesterId,
+      plan: {
+        ...plan,
+        personId: person.id
+      },
+      linkedWorkItemId: workItem.id,
+      createdTaskIds,
+      createdApprovalIds,
+      createdObjectIds,
+      createdAt: nowIso()
+    };
+    store.jmlJoinerRuns.set(run.id, run);
+
+    store.pushTimeline({
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      entityType: "workflow",
+      entityId: run.id,
+      eventType: "jml.joiner.executed",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        personId: person.id,
+        workItemId: workItem.id,
+        riskLevel: plan.riskLevel,
+        approvals: createdApprovalIds.length,
+        tasks: createdTaskIds.length,
+        objects: createdObjectIds.length
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        run,
+        workItem,
+        approvalIds: createdApprovalIds,
+        taskIds: createdTaskIds,
+        createdObjectIds
+      }
+    });
   });
 
   router.get("/jml/mover/runs", (req, res) => {

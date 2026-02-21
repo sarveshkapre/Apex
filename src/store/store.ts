@@ -12,6 +12,7 @@ import {
   ExternalTicketLink,
   GraphObject,
   GraphRelationship,
+  JmlJoinerRun,
   JmlLeaverRun,
   JmlMoverRun,
   ObjectMergeRun,
@@ -64,6 +65,7 @@ export class ApexStore {
   contractRenewalRuns = new Map<string, ContractRenewalRun>();
   reportDefinitions = new Map<string, ReportDefinition>();
   reportRuns = new Map<string, ReportRun>();
+  jmlJoinerRuns = new Map<string, JmlJoinerRun>();
   jmlMoverRuns = new Map<string, JmlMoverRun>();
   jmlLeaverRuns = new Map<string, JmlLeaverRun>();
   objectMergeRuns = new Map<string, ObjectMergeRun>();

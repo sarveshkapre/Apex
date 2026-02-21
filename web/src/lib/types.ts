@@ -435,6 +435,54 @@ export interface JmlMoverPlan {
   approvalsRequired: string[];
 }
 
+export interface JmlJoinerStep {
+  id: string;
+  name: string;
+  riskLevel: "low" | "medium" | "high";
+  requiresApproval: boolean;
+}
+
+export interface JmlJoinerPlan {
+  personId?: string;
+  legalName: string;
+  email: string;
+  startDate: string;
+  location: string;
+  role: string;
+  managerId?: string;
+  employmentType: "employee" | "contractor" | "intern";
+  deviceTypePreference: "laptop" | "desktop" | "phone" | "tablet";
+  remote: boolean;
+  baselineGroups: string[];
+  baselineApps: string[];
+  requestedApps: string[];
+  riskLevel: "low" | "medium" | "high";
+  approvalsRequired: string[];
+  steps: JmlJoinerStep[];
+}
+
+export interface JmlJoinerRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  personId?: string;
+  requesterId: string;
+  plan: JmlJoinerPlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdObjectIds: string[];
+  createdAt: string;
+}
+
+export interface JmlJoinerExecutionResult {
+  run: JmlJoinerRun;
+  workItem: WorkItem;
+  approvalIds: string[];
+  taskIds: string[];
+  createdObjectIds: string[];
+}
+
 export interface JmlMoverRun {
   id: string;
   mode: "preview" | "live";

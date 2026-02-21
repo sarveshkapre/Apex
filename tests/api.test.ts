@@ -1257,6 +1257,85 @@ describe("Apex API", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("generates JML joiner preview with baseline entitlements and steps", async () => {
+    const { app } = createApp();
+
+    const preview = await request(app)
+      .post("/v1/jml/joiner/preview")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        legalName: "Alex Onboard",
+        email: "alex.onboard@example.com",
+        startDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        location: "San Francisco",
+        role: "engineer",
+        managerId: "manager-approver",
+        employmentType: "employee",
+        requiredApps: ["Figma"],
+        deviceTypePreference: "laptop",
+        remote: true,
+        requesterId: "person-1"
+      });
+
+    expect(preview.status).toBe(201);
+    expect(preview.body.data.plan.email).toBe("alex.onboard@example.com");
+    expect(preview.body.data.plan.baselineGroups.length).toBeGreaterThan(0);
+    expect(preview.body.data.plan.steps.length).toBeGreaterThan(0);
+    expect(preview.body.data.plan.approvalsRequired).toContain("manager");
+  });
+
+  it("executes JML joiner flow and creates person, identity, device, and onboarding tasks", async () => {
+    const { app } = createApp();
+
+    const executed = await request(app)
+      .post("/v1/jml/joiner/execute")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        legalName: "Priya Hire",
+        email: "priya.hire@example.com",
+        startDate: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        location: "New York",
+        role: "manager",
+        managerId: "manager-approver",
+        employmentType: "contractor",
+        requiredApps: ["Figma", "Notion"],
+        deviceTypePreference: "desktop",
+        remote: false,
+        requesterId: "person-1",
+        reason: "Onboarding approved"
+      });
+
+    expect(executed.status).toBe(201);
+    expect(executed.body.data.workItem.type).toBe("Request");
+    expect(executed.body.data.approvalIds.length).toBeGreaterThan(0);
+    expect(executed.body.data.taskIds.length).toBeGreaterThan(0);
+    expect(executed.body.data.createdObjectIds.length).toBeGreaterThanOrEqual(3);
+
+    const run = executed.body.data.run;
+    expect(run.plan.legalName).toBe("Priya Hire");
+    expect(run.personId).toBeDefined();
+
+    const person = await request(app).get(`/v1/objects/${run.personId as string}`);
+    expect(person.status).toBe(200);
+    expect(person.body.data.type).toBe("Person");
+    expect(person.body.data.fields.status).toBe("pre-hire");
+
+    const relationships = await request(app).get("/v1/relationships").query({ objectId: run.personId as string });
+    expect(relationships.status).toBe(200);
+    expect(
+      (relationships.body.data as Array<{ type: string }>).some((relationship) => relationship.type === "has_identity")
+    ).toBe(true);
+    expect(
+      (relationships.body.data as Array<{ type: string }>).some((relationship) => relationship.type === "assigned_to")
+    ).toBe(true);
+
+    const runs = await request(app).get("/v1/jml/joiner/runs").query({ email: "priya.hire@example.com" });
+    expect(runs.status).toBe(200);
+    expect(runs.body.data.length).toBeGreaterThan(0);
+  });
+
   it("generates JML mover preview with entitlement diff", async () => {
     const { app } = createApp();
 

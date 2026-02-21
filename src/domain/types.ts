@@ -111,6 +111,7 @@ export type TimelineEventType =
   | "saas.reclaim.run"
   | "contract.renewal.run"
   | "report.run"
+  | "jml.joiner.executed"
   | "jml.mover.executed"
   | "jml.leaver.executed"
   | "object.merged"
@@ -643,6 +644,46 @@ export interface ReportRun {
   content: string;
   ranBy: string;
   error?: string;
+}
+
+export interface JmlJoinerStep {
+  id: string;
+  name: string;
+  riskLevel: RiskLevel;
+  requiresApproval: boolean;
+}
+
+export interface JmlJoinerPlan {
+  personId?: string;
+  legalName: string;
+  email: string;
+  startDate: string;
+  location: string;
+  role: string;
+  managerId?: string;
+  employmentType: "employee" | "contractor" | "intern";
+  deviceTypePreference: "laptop" | "desktop" | "phone" | "tablet";
+  remote: boolean;
+  baselineGroups: string[];
+  baselineApps: string[];
+  requestedApps: string[];
+  riskLevel: RiskLevel;
+  approvalsRequired: ApprovalType[];
+  steps: JmlJoinerStep[];
+}
+
+export interface JmlJoinerRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  personId?: string;
+  requesterId: string;
+  plan: JmlJoinerPlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdObjectIds: string[];
+  createdAt: string;
 }
 
 export interface JmlMoverPlan {
