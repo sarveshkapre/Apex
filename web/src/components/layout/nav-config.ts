@@ -3,6 +3,7 @@ import {
   AppWindow,
   Boxes,
   CircleHelp,
+  Cloud,
   Command,
   FileClock,
   Gauge,
@@ -92,6 +93,12 @@ export const operatorNav: NavItem[] = [
     label: "Policies",
     description: "Compliance posture and exception control",
     icon: ShieldCheck
+  },
+  {
+    href: "/operator/cloud",
+    label: "Cloud",
+    description: "Tag governance and remediation",
+    icon: Cloud
   },
   {
     href: "/operator/integrations",

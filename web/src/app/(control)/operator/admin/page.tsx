@@ -1,18 +1,24 @@
 import { PageHeader } from "@/components/app/page-header";
 import { AdminStudio } from "@/components/operator/admin-studio";
 import {
+  listApprovalMatrixRules,
   listConfigVersions,
   listCustomSchemas,
+  listFieldRestrictions,
   listNotificationRules,
-  listPolicies
+  listPolicies,
+  listSodRules
 } from "@/lib/apex";
 
 export default async function AdminStudioPage() {
-  const [schemas, policies, notifications, versions] = await Promise.all([
+  const [schemas, policies, notifications, versions, fieldRestrictions, sodRules, approvalMatrix] = await Promise.all([
     listCustomSchemas(),
     listPolicies(),
     listNotificationRules(),
-    listConfigVersions()
+    listConfigVersions(),
+    listFieldRestrictions(),
+    listSodRules(),
+    listApprovalMatrixRules()
   ]);
 
   return (
@@ -26,6 +32,9 @@ export default async function AdminStudioPage() {
         initialPolicies={policies}
         initialNotifications={notifications}
         initialVersions={versions}
+        initialFieldRestrictions={fieldRestrictions}
+        initialSodRules={sodRules}
+        initialApprovalMatrix={approvalMatrix}
       />
     </div>
   );

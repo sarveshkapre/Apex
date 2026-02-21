@@ -312,4 +312,54 @@ describe("Apex API", () => {
     expect(approvalTypes).toContain("manager");
     expect(approvalTypes).toContain("security");
   });
+
+  it("returns cloud tag coverage with noncompliant resources", async () => {
+    const { app } = createApp();
+
+    const response = await request(app)
+      .get("/v1/cloud/tag-governance/coverage")
+      .set("x-actor-id", "sec-1")
+      .set("x-actor-role", "security-analyst");
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.totalResources).toBeGreaterThan(0);
+    expect(response.body.data.nonCompliantResources).toBeGreaterThan(0);
+  });
+
+  it("runs cloud tag enforcement in dry-run and live modes", async () => {
+    const { app } = createApp();
+
+    const before = await request(app).get("/v1/work-items");
+    const beforeExceptions = (before.body.data as Array<{ type: string }>).filter((item) => item.type === "Exception")
+      .length;
+
+    const dryRun = await request(app)
+      .post("/v1/cloud/tag-governance/enforce")
+      .set("x-actor-id", "operator-1")
+      .set("x-actor-role", "it-agent")
+      .send({ dryRun: true, autoTag: true });
+
+    expect(dryRun.status).toBe(200);
+    expect(dryRun.body.data.mode).toBe("dry-run");
+
+    const afterDryRun = await request(app).get("/v1/work-items");
+    const afterDryRunExceptions = (afterDryRun.body.data as Array<{ type: string }>).filter(
+      (item) => item.type === "Exception"
+    ).length;
+    expect(afterDryRunExceptions).toBe(beforeExceptions);
+
+    const live = await request(app)
+      .post("/v1/cloud/tag-governance/enforce")
+      .set("x-actor-id", "operator-1")
+      .set("x-actor-role", "it-agent")
+      .send({ dryRun: false, autoTag: true });
+    expect(live.status).toBe(200);
+    expect(live.body.data.mode).toBe("live");
+    expect(live.body.data.exceptionsCreated).toBeGreaterThan(0);
+
+    const afterLive = await request(app).get("/v1/work-items");
+    const afterLiveExceptions = (afterLive.body.data as Array<{ type: string }>).filter((item) => item.type === "Exception")
+      .length;
+    expect(afterLiveExceptions).toBeGreaterThan(beforeExceptions);
+  });
 });

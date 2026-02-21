@@ -377,3 +377,13 @@ export const catalogSubmitSchema = z.object({
 export const externalTicketCommentSchema = z.object({
   body: z.string().min(1)
 });
+
+export const cloudTagCoverageSchema = z.object({
+  requiredTags: z.array(z.string().min(1)).optional()
+});
+
+export const cloudTagEnforceSchema = z.object({
+  requiredTags: z.array(z.string().min(1)).optional(),
+  dryRun: z.boolean().default(true),
+  autoTag: z.boolean().default(true)
+});

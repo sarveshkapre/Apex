@@ -2,17 +2,19 @@ import { MessageSquareText, Paperclip, Timer } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { RequestTimeline } from "@/components/app/request-timeline";
 import { StatusBadge } from "@/components/app/status-badge";
+import { CatalogRequestDialog } from "@/components/portal/catalog-request-dialog";
 import { NewRequestDialog } from "@/components/portal/new-request-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listWorkItems } from "@/lib/apex";
+import { getCatalog, listWorkItems } from "@/lib/apex";
 
 export default async function RequestsPage() {
-  const items = await listWorkItems();
+  const [items, catalog] = await Promise.all([listWorkItems(), getCatalog()]);
 
   return (
     <div className="space-y-4">
       <PageHeader title="My Requests" description="Track every request with status, owner, SLA, and collaboration history." />
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        <CatalogRequestDialog triggerLabel="Catalog request" catalogItems={catalog} />
         <NewRequestDialog triggerLabel="New request" />
       </div>
 

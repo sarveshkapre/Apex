@@ -1,6 +1,7 @@
 import { BellDot, ClipboardList, Laptop2, Sparkles } from "lucide-react";
 import { MetricCard } from "@/components/app/metric-card";
 import { PageHeader } from "@/components/app/page-header";
+import { CatalogRequestDialog } from "@/components/portal/catalog-request-dialog";
 import { NewRequestDialog } from "@/components/portal/new-request-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCatalog, listObjectsByType, listWorkItems } from "@/lib/apex";
@@ -58,10 +59,11 @@ export default async function PortalHomePage() {
             <CardTitle className="text-base">Quick actions</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
-            <NewRequestDialog triggerLabel="Request laptop or device" />
-            <NewRequestDialog triggerLabel="Request software access" />
+            <CatalogRequestDialog triggerLabel="Request laptop or device" catalogItems={catalog} defaultCatalogItemId="cat-laptop" />
+            <CatalogRequestDialog triggerLabel="Request software access" catalogItems={catalog} defaultCatalogItemId="cat-saas-access" />
+            <CatalogRequestDialog triggerLabel="Request admin privileges" catalogItems={catalog} defaultCatalogItemId="cat-admin" />
             <NewRequestDialog triggerLabel="Report lost or stolen" defaultType="Incident" />
-            <NewRequestDialog triggerLabel="Request accessory" />
+            <NewRequestDialog triggerLabel="Request accessory" defaultType="Request" />
           </CardContent>
         </Card>
       </section>
@@ -89,9 +91,12 @@ export default async function PortalHomePage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {catalog.map((item) => (
-              <div key={item.id} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
-                <p className="text-sm font-medium text-zinc-900">{item.name}</p>
-                <p className="text-xs text-zinc-500">{item.expectedDelivery}</p>
+              <div key={item.id} className="space-y-2 rounded-lg border border-zinc-200 bg-white px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-zinc-900">{item.name}</p>
+                  <p className="text-xs text-zinc-500">{item.expectedDelivery}</p>
+                </div>
+                <CatalogRequestDialog triggerLabel="Start request" catalogItems={catalog} defaultCatalogItemId={item.id} />
               </div>
             ))}
           </CardContent>

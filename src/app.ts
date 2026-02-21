@@ -58,6 +58,90 @@ export const createApp = (): { app: express.Express; store: ApexStore } => {
     updatedAt: nowIso()
   });
 
+  const cloudResourceCompliantId = store.createId();
+  store.objects.set(cloudResourceCompliantId, {
+    id: cloudResourceCompliantId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "CloudResource",
+    fields: {
+      provider: "AWS",
+      resource_type: "ec2.instance",
+      name: "prod-api-ec2-01",
+      region: "us-west-2",
+      owner: "platform-team",
+      environment: "prod",
+      cost_center: "ENG-001",
+      tags: {
+        owner: "platform-team",
+        cost_center: "ENG-001",
+        environment: "prod",
+        data_classification: "internal"
+      }
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.95,
+      completeness: 0.9,
+      consistency: 0.95,
+      coverage: 0.9
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const cloudResourceMissingTagsId = store.createId();
+  store.objects.set(cloudResourceMissingTagsId, {
+    id: cloudResourceMissingTagsId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "CloudResource",
+    fields: {
+      provider: "Azure",
+      resource_type: "storage.account",
+      name: "stage-artifacts-01",
+      region: "eastus",
+      owner: "data-platform",
+      environment: "stage",
+      tags: {
+        owner: "data-platform"
+      }
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.83,
+      completeness: 0.64,
+      consistency: 0.88,
+      coverage: 0.72
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const cloudResourceOrphanId = store.createId();
+  store.objects.set(cloudResourceOrphanId, {
+    id: cloudResourceOrphanId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "CloudResource",
+    fields: {
+      provider: "GCP",
+      resource_type: "compute.instance",
+      name: "unknown-owner-vm",
+      region: "us-central1",
+      tags: {}
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.62,
+      completeness: 0.42,
+      consistency: 0.8,
+      coverage: 0.5
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
   const sampleApprovalId = store.createId();
   store.approvals.set(sampleApprovalId, {
     id: sampleApprovalId,

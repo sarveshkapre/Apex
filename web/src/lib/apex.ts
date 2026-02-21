@@ -1,12 +1,18 @@
 import {
   Approval,
+  ApprovalMatrixRule,
   AiInsight,
   CatalogItem,
+  CatalogPreviewResult,
+  CatalogSubmitResult,
+  CloudTagCoverage,
+  CloudTagEnforcementResult,
   ConfigVersion,
   ConnectorConfig,
   CustomObjectSchema,
   DashboardKpis,
   ExternalTicketLink,
+  FieldRestriction,
   GraphObject,
   IntegrationHealth,
   KnowledgeArticle,
@@ -15,6 +21,7 @@ import {
   PolicyEvaluationResult,
   QualityDashboard,
   SavedView,
+  SodRule,
   SlaBreachesResponse,
   WorkflowSimulationResult,
   WorkItem,
@@ -118,6 +125,59 @@ export const getDashboard = async (type: string): Promise<DashboardKpis> => {
 
 export const getCatalog = async (): Promise<CatalogItem[]> => {
   return safe(() => get<CatalogItem[]>("/catalog/items"), mockCatalog);
+};
+
+export const previewCatalogItem = async (
+  catalogItemId: string,
+  fieldValues: Record<string, unknown>
+): Promise<CatalogPreviewResult> => {
+  return safe(
+    async () => {
+      const response = await fetch(`${API_BASE}/catalog/items/${catalogItemId}/preview`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-actor-id": "portal-user-1",
+          "x-actor-role": "end-user"
+        },
+        body: JSON.stringify({ fieldValues })
+      });
+      if (!response.ok) {
+        throw new Error("Catalog preview failed");
+      }
+      const json = (await response.json()) as ApiResponse<CatalogPreviewResult>;
+      return json.data;
+    },
+    {
+      catalogItemId,
+      fields: []
+    }
+  );
+};
+
+export const submitCatalogRequest = async (payload: {
+  catalogItemId: string;
+  requesterId: string;
+  title: string;
+  description?: string;
+  estimatedCost?: number;
+  fieldValues: Record<string, unknown>;
+}): Promise<CatalogSubmitResult> => {
+  const response = await fetch(`${API_BASE}/catalog/submit`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "portal-user-1",
+      "x-actor-role": "end-user"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const failure = await response.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(String(failure.error ?? "Request failed"));
+  }
+  const json = (await response.json()) as ApiResponse<CatalogSubmitResult>;
+  return json.data;
 };
 
 export const runWorkflow = async (definitionId: string, inputs: Record<string, unknown>) => {
@@ -420,6 +480,102 @@ export const listConfigVersions = async (): Promise<ConfigVersion[]> => {
   return safe(() => get<ConfigVersion[]>("/admin/config-versions"), mockConfigVersions);
 };
 
+export const listFieldRestrictions = async (): Promise<FieldRestriction[]> => {
+  return safe(() => get<FieldRestriction[]>("/admin/rbac/field-restrictions"), []);
+};
+
+export const createFieldRestriction = async (payload: {
+  objectType: string;
+  field: string;
+  readRoles: string[];
+  writeRoles: string[];
+  maskStyle?: "hidden" | "redacted";
+}) => {
+  return fetch(`${API_BASE}/admin/rbac/field-restrictions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify(payload)
+  });
+};
+
+export const listSodRules = async (): Promise<SodRule[]> => {
+  return safe(() => get<SodRule[]>("/admin/rbac/sod-rules"), []);
+};
+
+export const createSodRule = async (payload: {
+  name: string;
+  description: string;
+  requestTypes: string[];
+  enabled: boolean;
+}) => {
+  return fetch(`${API_BASE}/admin/rbac/sod-rules`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify(payload)
+  });
+};
+
+export const listApprovalMatrixRules = async (): Promise<ApprovalMatrixRule[]> => {
+  return safe(() => get<ApprovalMatrixRule[]>("/admin/rbac/approval-matrix"), []);
+};
+
+export const createApprovalMatrixRule = async (payload: {
+  name: string;
+  requestType: string;
+  riskLevel: "low" | "medium" | "high";
+  costThreshold?: number;
+  approverTypes: string[];
+  enabled: boolean;
+}) => {
+  return fetch(`${API_BASE}/admin/rbac/approval-matrix`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify(payload)
+  });
+};
+
+export const authorizeAction = async (action: string): Promise<{ actor: { id: string; role: string }; action: string; allowed: boolean }> => {
+  return safe(
+    async () => {
+      const response = await fetch(`${API_BASE}/admin/rbac/authorize`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-actor-id": "ui-admin",
+          "x-actor-role": "it-admin"
+        },
+        body: JSON.stringify({ action })
+      });
+      if (!response.ok) {
+        throw new Error("Authorization check failed");
+      }
+      const json = (await response.json()) as ApiResponse<{
+        actor: { id: string; role: string };
+        action: string;
+        allowed: boolean;
+      }>;
+      return json.data;
+    },
+    {
+      actor: { id: "ui-admin", role: "it-admin" },
+      action,
+      allowed: false
+    }
+  );
+};
+
 export const createConfigVersion = async (payload: { kind: string; name: string; reason: string }) => {
   return fetch(`${API_BASE}/admin/config-versions`, {
     method: "POST",
@@ -560,4 +716,40 @@ export const getAiInsights = async (): Promise<AiInsight[]> => {
     },
     mockAiInsights
   );
+};
+
+export const getCloudTagCoverage = async (requiredTags?: string[]): Promise<CloudTagCoverage> => {
+  const query = requiredTags && requiredTags.length > 0 ? `?requiredTags=${encodeURIComponent(requiredTags.join(","))}` : "";
+  return safe(
+    () => get<CloudTagCoverage>(`/cloud/tag-governance/coverage${query}`),
+    {
+      requiredTags: ["owner", "cost_center", "environment", "data_classification"],
+      totalResources: 0,
+      compliantResources: 0,
+      nonCompliantResources: 0,
+      coveragePercent: 100,
+      nonCompliant: []
+    }
+  );
+};
+
+export const enforceCloudTags = async (payload: {
+  requiredTags?: string[];
+  dryRun: boolean;
+  autoTag: boolean;
+}): Promise<CloudTagEnforcementResult> => {
+  const response = await fetch(`${API_BASE}/cloud/tag-governance/enforce`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to enforce cloud tags");
+  }
+  const json = (await response.json()) as ApiResponse<CloudTagEnforcementResult>;
+  return json.data;
 };

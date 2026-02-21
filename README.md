@@ -47,6 +47,8 @@ This repository now ships a full-stack implementation baseline for Apex:
   - workflow definition lifecycle + simulation (`/v1/workflows/definitions`, `/v1/workflows/definitions/:id/state`, `/v1/workflows/definitions/:id/simulate`)
   - approvals inbox + delegation (`/v1/approvals/inbox`, `/v1/approvals/:id/delegate`)
   - exception queue operations (`/v1/exceptions`, `/v1/exceptions/:id/action`)
+  - cloud tag governance coverage + enforcement (`/v1/cloud/tag-governance/coverage`, `/v1/cloud/tag-governance/enforce`)
+  - RBAC governance controls (`/v1/admin/rbac/field-restrictions`, `/v1/admin/rbac/sod-rules`, `/v1/admin/rbac/approval-matrix`, `/v1/admin/rbac/authorize`)
 - AI assistant APIs:
   - policy draft assistant (`/v1/ai/policy-draft`)
   - workflow draft assistant (`/v1/ai/workflow-draft`)
@@ -59,11 +61,14 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Shared command palette with keyboard shortcut (`Cmd/Ctrl + K`)
 - Role-aware nav shell and modern minimalist UI built with Next.js + Tailwind + shadcn
 - Admin Studio interactive controls for creating schemas/policies/notification rules
+- Admin Studio RBAC governance controls (field restrictions, SoD rules, approval matrix, authorization check)
 - Operator Queue SLA breach visibility + external ticket linking workflow
 - Command surface with AI request drafting, policy/workflow draft generation, and insights
 - Workflow Studio with draft/publish/rollback/simulate
 - Queue Center controls for approval decisions/delegation and exception retry/resolve/escalate
 - Admin CSV import wizard and config publish/rollback actions
+- Portal catalog request dialog with dynamic form preview + policy-driven approval submission
+- Operator Cloud Tag Governance module with dry-run/live remediation controls
 
 ## Run
 
@@ -101,6 +106,7 @@ npm --prefix web run build
 - `GET /v1/quality`
 - `GET /v1/catalog/items`, `POST /v1/catalog/items`, `PATCH /v1/catalog/items/:id`
 - `POST /v1/catalog/items/:id/preview`, `POST /v1/catalog/submit`
+- `GET /v1/cloud/tag-governance/coverage`, `POST /v1/cloud/tag-governance/enforce`
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
 - `GET /v1/workflows/definitions`

@@ -34,6 +34,8 @@ import {
   catalogItemUpdateSchema,
   catalogPreviewSchema,
   catalogSubmitSchema,
+  cloudTagCoverageSchema,
+  cloudTagEnforceSchema,
   commentCreateSchema,
   configVersionCreateSchema,
   configVersionPublishSchema,
@@ -93,6 +95,35 @@ const permission = (allowed: boolean): { ok: true } => {
     throw new Error("Permission denied");
   }
   return { ok: true };
+};
+
+const defaultCloudTags = ["owner", "cost_center", "environment", "data_classification"];
+
+const parseResourceTags = (value: unknown): Record<string, string> => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return Object.entries(value as Record<string, unknown>).reduce<Record<string, string>>((acc, [key, raw]) => {
+      acc[key] = String(raw);
+      return acc;
+    }, {});
+  }
+  if (Array.isArray(value)) {
+    return value.reduce<Record<string, string>>((acc, entry) => {
+      const [key, raw] = String(entry).split("=");
+      if (key && raw) {
+        acc[key.trim()] = raw.trim();
+      }
+      return acc;
+    }, {});
+  }
+  return {};
+};
+
+const missingTagsForResource = (object: GraphObject, requiredTags: string[]): string[] => {
+  const tags = parseResourceTags(object.fields.tags);
+  return requiredTags.filter((tag) => {
+    const value = tags[tag];
+    return value === undefined || value === "";
+  });
 };
 
 export const createRoutes = (store: ApexStore): Router => {
@@ -511,6 +542,165 @@ export const createRoutes = (store: ApexStore): Router => {
 
   router.get("/quality", (_req, res) => {
     res.json({ data: computeQualityDashboard(store) });
+  });
+
+  router.get("/cloud/tag-governance/coverage", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:view"));
+    const queryTags = req.query.requiredTags
+      ? String(req.query.requiredTags)
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      : undefined;
+    const parsed = cloudTagCoverageSchema.parse({ requiredTags: queryTags });
+    const requiredTags = parsed.requiredTags?.length ? parsed.requiredTags : defaultCloudTags;
+    const resources = [...store.objects.values()].filter((object) => object.type === "CloudResource");
+
+    const nonCompliant = resources
+      .map((resource) => {
+        const missingTags = missingTagsForResource(resource, requiredTags);
+        return {
+          resourceId: resource.id,
+          name: String(resource.fields.name ?? resource.id),
+          provider: String(resource.fields.provider ?? "unknown"),
+          owner: String(resource.fields.owner ?? "unknown"),
+          tags: parseResourceTags(resource.fields.tags),
+          missingTags
+        };
+      })
+      .filter((resource) => resource.missingTags.length > 0);
+
+    const compliantResources = resources.length - nonCompliant.length;
+    const coveragePercent = resources.length === 0 ? 100 : Math.round((compliantResources / resources.length) * 100);
+
+    res.json({
+      data: {
+        requiredTags,
+        totalResources: resources.length,
+        compliantResources,
+        nonCompliantResources: nonCompliant.length,
+        coveragePercent,
+        nonCompliant
+      }
+    });
+  });
+
+  router.post("/cloud/tag-governance/enforce", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = cloudTagEnforceSchema.parse(req.body);
+    const requiredTags = parsed.requiredTags?.length ? parsed.requiredTags : defaultCloudTags;
+    const resources = [...store.objects.values()].filter((object) => object.type === "CloudResource");
+
+    const remediations: Array<{
+      resourceId: string;
+      autoTagged: string[];
+      unresolved: string[];
+      exceptionId?: string;
+    }> = [];
+    let autoTaggedCount = 0;
+    let exceptionsCreated = 0;
+
+    for (const resource of resources) {
+      const missing = missingTagsForResource(resource, requiredTags);
+      if (missing.length === 0) {
+        continue;
+      }
+
+      const tags = parseResourceTags(resource.fields.tags);
+      const autoTagged: string[] = [];
+      const unresolved: string[] = [];
+
+      for (const tag of missing) {
+        if (!parsed.autoTag) {
+          unresolved.push(tag);
+          continue;
+        }
+
+        const mappedValue =
+          tag === "owner"
+            ? String(resource.fields.owner ?? resource.fields.team_owner ?? "")
+            : tag === "cost_center"
+              ? String(resource.fields.billing_cost_center ?? resource.fields.cost_center ?? "")
+              : tag === "environment"
+                ? String(resource.fields.environment ?? "")
+                : tag === "data_classification"
+                  ? String(resource.fields.data_classification ?? "internal")
+                  : "";
+
+        if (!mappedValue) {
+          unresolved.push(tag);
+          continue;
+        }
+
+        tags[tag] = mappedValue;
+        autoTagged.push(tag);
+      }
+
+      if (!parsed.dryRun && autoTagged.length > 0) {
+        resource.fields = { ...resource.fields, tags };
+        resource.updatedAt = nowIso();
+        store.objects.set(resource.id, resource);
+        store.pushTimeline({
+          tenantId: resource.tenantId,
+          workspaceId: resource.workspaceId,
+          entityType: "object",
+          entityId: resource.id,
+          eventType: "object.updated",
+          actor: actor.id,
+          createdAt: nowIso(),
+          payload: { cloudTagGovernance: true, autoTagged }
+        });
+      }
+
+      if (autoTagged.length > 0) {
+        autoTaggedCount += 1;
+      }
+
+      let exceptionId: string | undefined;
+      if (!parsed.dryRun && unresolved.length > 0) {
+        const exception: WorkItem = {
+          id: store.createId(),
+          tenantId: resource.tenantId,
+          workspaceId: resource.workspaceId,
+          type: "Exception",
+          status: "Submitted",
+          priority: "P2",
+          title: `Cloud tag noncompliance: ${String(resource.fields.name ?? resource.id)}`,
+          description: `Missing required tags: ${unresolved.join(", ")}`,
+          requesterId: "system",
+          assignmentGroup: "Cloud Platform",
+          linkedObjectIds: [resource.id],
+          tags: ["cloud", "tag-governance", "automation-failed"],
+          comments: [],
+          attachments: [],
+          createdAt: nowIso(),
+          updatedAt: nowIso()
+        };
+        store.workItems.set(exception.id, exception);
+        exceptionId = exception.id;
+        exceptionsCreated += 1;
+      }
+
+      remediations.push({
+        resourceId: resource.id,
+        autoTagged,
+        unresolved,
+        exceptionId
+      });
+    }
+
+    res.json({
+      data: {
+        mode: parsed.dryRun ? "dry-run" : "live",
+        requiredTags,
+        resourcesEvaluated: resources.length,
+        autoTaggedResources: autoTaggedCount,
+        exceptionsCreated,
+        remediations
+      }
+    });
   });
 
   router.get("/catalog/items", (_req, res) => {

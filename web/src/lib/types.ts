@@ -113,13 +113,54 @@ export interface DashboardKpis {
   slaBreaches: number;
 }
 
+export type RiskLevel = "low" | "medium" | "high";
+
+export interface CatalogFormField {
+  id: string;
+  key: string;
+  label: string;
+  type: "string" | "number" | "date" | "enum" | "bool" | "text";
+  required: boolean;
+  options?: string[];
+  requiredIf?: {
+    key: string;
+    equals: string | number | boolean;
+  };
+  defaultValue?: string | number | boolean;
+}
+
 export interface CatalogItem {
   id: string;
+  tenantId?: string;
+  workspaceId?: string;
   name: string;
+  description: string;
   category: string;
   audience: string[];
+  regions?: string[];
   expectedDelivery: string;
-  description: string;
+  formFields?: CatalogFormField[];
+  defaultWorkflowDefinitionId?: string;
+  riskLevel?: RiskLevel;
+  active?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CatalogPreviewResult {
+  catalogItemId: string;
+  fields: Array<
+    CatalogFormField & {
+      requiredResolved: boolean;
+      value: unknown;
+    }
+  >;
+}
+
+export interface CatalogSubmitResult {
+  workItem: WorkItem;
+  approvals: Approval[];
+  fieldValues: Record<string, unknown>;
 }
 
 export interface SlaBreach {
@@ -194,6 +235,33 @@ export interface ConfigVersion {
   reason: string;
 }
 
+export interface FieldRestriction {
+  id: string;
+  objectType: string;
+  field: string;
+  readRoles: string[];
+  writeRoles: string[];
+  maskStyle?: "hidden" | "redacted";
+}
+
+export interface SodRule {
+  id: string;
+  name: string;
+  description: string;
+  requestTypes: string[];
+  enabled: boolean;
+}
+
+export interface ApprovalMatrixRule {
+  id: string;
+  name: string;
+  requestType: string;
+  riskLevel: RiskLevel;
+  costThreshold?: number;
+  approverTypes: string[];
+  enabled: boolean;
+}
+
 export interface SavedView {
   id: string;
   name: string;
@@ -227,4 +295,36 @@ export interface WorkflowSimulationResult {
     requiresApproval: boolean;
   }>;
   outcome: string;
+}
+
+export interface CloudTagNonCompliant {
+  resourceId: string;
+  name: string;
+  provider: string;
+  owner: string;
+  tags: Record<string, string>;
+  missingTags: string[];
+}
+
+export interface CloudTagCoverage {
+  requiredTags: string[];
+  totalResources: number;
+  compliantResources: number;
+  nonCompliantResources: number;
+  coveragePercent: number;
+  nonCompliant: CloudTagNonCompliant[];
+}
+
+export interface CloudTagEnforcementResult {
+  mode: "dry-run" | "live";
+  requiredTags: string[];
+  resourcesEvaluated: number;
+  autoTaggedResources: number;
+  exceptionsCreated: number;
+  remediations: Array<{
+    resourceId: string;
+    autoTagged: string[];
+    unresolved: string[];
+    exceptionId?: string;
+  }>;
 }
