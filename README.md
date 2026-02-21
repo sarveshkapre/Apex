@@ -44,6 +44,9 @@ This repository now ships a full-stack implementation baseline for Apex:
   - saved views (`/v1/views`)
   - external ticket overlay linking (`/v1/overlay/external-ticket-links`)
   - CSV preview/apply import (`/v1/import/csv/preview`, `/v1/import/csv/apply`)
+  - workflow definition lifecycle + simulation (`/v1/workflows/definitions`, `/v1/workflows/definitions/:id/state`, `/v1/workflows/definitions/:id/simulate`)
+  - approvals inbox + delegation (`/v1/approvals/inbox`, `/v1/approvals/:id/delegate`)
+  - exception queue operations (`/v1/exceptions`, `/v1/exceptions/:id/action`)
 - AI assistant APIs:
   - policy draft assistant (`/v1/ai/policy-draft`)
   - workflow draft assistant (`/v1/ai/workflow-draft`)
@@ -58,6 +61,9 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Admin Studio interactive controls for creating schemas/policies/notification rules
 - Operator Queue SLA breach visibility + external ticket linking workflow
 - Command surface with AI request drafting, policy/workflow draft generation, and insights
+- Workflow Studio with draft/publish/rollback/simulate
+- Queue Center controls for approval decisions/delegation and exception retry/resolve/escalate
+- Admin CSV import wizard and config publish/rollback actions
 
 ## Run
 

@@ -80,7 +80,8 @@ export class WorkflowEngine {
       }
 
       if (step.riskLevel === "high" && !can(actor.role, "automation:high-risk")) {
-        this.requestApproval(run, actor.id, "security", step.name);
+        const approverId = String(step.config.approverId ?? "security-approver");
+        this.requestApproval(run, actor.id, "security", step.name, approverId);
         run.status = "waiting-approval";
         run.updatedAt = nowIso();
         this.store.workflowRuns.set(run.id, run);
@@ -88,7 +89,8 @@ export class WorkflowEngine {
       }
 
       if (step.type === "approval") {
-        this.requestApproval(run, actor.id, step.config.approvalType, step.name);
+        const approverId = String(step.config.approverId ?? `${String(step.config.approvalType ?? "it")}-approver`);
+        this.requestApproval(run, actor.id, step.config.approvalType, step.name, approverId);
         run.status = "waiting-approval";
         run.updatedAt = nowIso();
         this.store.workflowRuns.set(run.id, run);
@@ -180,6 +182,19 @@ export class WorkflowEngine {
       throw new Error("Approval not found");
     }
 
+    const canActAsApprover =
+      approval.approverId === actor.id ||
+      actor.role === "it-admin" ||
+      actor.role === "security-analyst" ||
+      actor.role === "finance";
+    if (!canActAsApprover) {
+      throw new Error("Permission denied: actor is not assigned approver");
+    }
+
+    if (decision === "rejected" && (!comment || comment.trim().length === 0)) {
+      throw new Error("Reject decision requires a comment");
+    }
+
     approval.decision = decision;
     approval.comment = comment;
     approval.decidedAt = nowIso();
@@ -266,14 +281,20 @@ export class WorkflowEngine {
     }
   }
 
-  private requestApproval(run: WorkflowRun, actorId: string, approvalTypeRaw: unknown, reason: string): ApprovalRecord {
+  private requestApproval(
+    run: WorkflowRun,
+    actorId: string,
+    approvalTypeRaw: unknown,
+    reason: string,
+    approverId: string
+  ): ApprovalRecord {
     const approval: ApprovalRecord = {
       id: this.store.createId(),
       tenantId: run.tenantId,
       workspaceId: run.workspaceId,
       workItemId: run.id,
       type: toApprovalType(approvalTypeRaw),
-      approverId: actorId,
+      approverId,
       decision: "pending",
       createdAt: nowIso()
     };

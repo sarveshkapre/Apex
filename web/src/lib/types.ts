@@ -57,6 +57,8 @@ export interface WorkflowDefinition {
   playbook: string;
   version: number;
   active: boolean;
+  createdAt?: string;
+  publishedAt?: string;
   steps?: Array<{
     id: string;
     name: string;
@@ -212,4 +214,17 @@ export interface AiInsight {
   title: string;
   severity: string;
   summary: string;
+}
+
+export interface WorkflowSimulationResult {
+  workflowDefinitionId: string;
+  plan: Array<{
+    order: number;
+    stepId: string;
+    name: string;
+    type: string;
+    riskLevel: string;
+    requiresApproval: boolean;
+  }>;
+  outcome: string;
 }

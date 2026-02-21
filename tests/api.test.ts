@@ -148,4 +148,58 @@ describe("Apex API", () => {
     expect(evaluated.status).toBe(200);
     expect(typeof evaluated.body.data.evaluatedCount).toBe("number");
   });
+
+  it("supports workflow draft lifecycle and simulation", async () => {
+    const { app } = createApp();
+
+    const created = await request(app)
+      .post("/v1/workflows/definitions")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        name: "Test workflow",
+        playbook: "Custom",
+        trigger: { kind: "manual", value: "manual.test" },
+        steps: [
+          { name: "Collect", type: "human-task", riskLevel: "low", config: {} },
+          { name: "Approve", type: "approval", riskLevel: "medium", config: {} }
+        ]
+      });
+    expect(created.status).toBe(201);
+
+    const definitionId = created.body.data.id as string;
+    const simulated = await request(app)
+      .post(`/v1/workflows/definitions/${definitionId}/simulate`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ inputs: { requesterId: "person-1" } });
+    expect(simulated.status).toBe(200);
+    expect(simulated.body.data.outcome).toBe("dry-run-complete");
+
+    const published = await request(app)
+      .post(`/v1/workflows/definitions/${definitionId}/state`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ action: "publish", reason: "Ready" });
+    expect(published.status).toBe(200);
+    expect(published.body.data.active).toBe(true);
+  });
+
+  it("supports exception action lifecycle", async () => {
+    const { app } = createApp();
+
+    const exceptions = await request(app).get("/v1/exceptions");
+    expect(exceptions.status).toBe(200);
+    expect(exceptions.body.data.length).toBeGreaterThan(0);
+
+    const exceptionId = exceptions.body.data[0].id as string;
+    const resolved = await request(app)
+      .post(`/v1/exceptions/${exceptionId}/action`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ action: "resolve", reason: "Handled by endpoint team" });
+
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.data.status).toBe("Completed");
+  });
 });

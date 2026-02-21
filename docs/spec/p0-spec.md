@@ -48,6 +48,9 @@ Implemented under `/v1`:
 - Saved views + external ticket overlay APIs
 - CSV preview/apply import
 - AI drafting/insight APIs (policy draft, workflow draft, anomaly insights)
+- Workflow definition lifecycle APIs (create draft, publish/rollback, simulation)
+- Approval inbox/delegation APIs
+- Exception action APIs (retry/resolve/escalate)
 
 ## 4. Safety Model
 

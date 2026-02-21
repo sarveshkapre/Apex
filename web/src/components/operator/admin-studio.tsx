@@ -12,14 +12,17 @@ import {
   PolicyDefinition
 } from "@/lib/types";
 import {
+  createConfigVersion,
   createCustomSchema,
   createNotificationRule,
   createPolicy,
   listConfigVersions,
   listCustomSchemas,
   listNotificationRules,
-  listPolicies
+  listPolicies,
+  transitionConfigVersion
 } from "@/lib/apex";
+import { ImportWizard } from "@/components/operator/import-wizard";
 
 type Props = {
   initialSchemas: CustomObjectSchema[];
@@ -93,6 +96,28 @@ export function AdminStudio({
     await refresh();
   };
 
+  const addConfigVersion = async () => {
+    const response = await createConfigVersion({
+      kind: "policy",
+      name: "Encryption required",
+      reason: "Draft policy tuning"
+    });
+    setStatus(response.ok ? "Config version draft created." : "Failed to create config version.");
+    await refresh();
+  };
+
+  const publishVersion = async (id: string) => {
+    const response = await transitionConfigVersion(id, "published", "Approved for production");
+    setStatus(response.ok ? "Config published." : "Failed to publish config.");
+    await refresh();
+  };
+
+  const rollbackVersion = async (id: string) => {
+    const response = await transitionConfigVersion(id, "rolled_back", "Rollback to prior version");
+    setStatus(response.ok ? "Config rolled back." : "Failed to roll back config.");
+    await refresh();
+  };
+
   return (
     <div className="space-y-4">
       <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
@@ -113,8 +138,11 @@ export function AdminStudio({
           <Input value={policyName} onChange={(event) => setPolicyName(event.target.value)} placeholder="Policy name" className="max-w-sm" />
           <Button onClick={addPolicy} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />Add</Button>
           <Button variant="outline" className="rounded-xl" onClick={addNotification}>Add notification rule</Button>
+          <Button variant="outline" className="rounded-xl" onClick={addConfigVersion}>Create config draft</Button>
         </CardContent>
       </Card>
+
+      <ImportWizard />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
@@ -156,10 +184,15 @@ export function AdminStudio({
           <CardHeader><CardTitle className="text-base">Config versions ({versions.length})</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm text-zinc-600">
             {versions.map((version) => (
-              <p key={version.id} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
-                {version.kind}:{" "}
-                {version.name} v{version.version} • {version.state}
-              </p>
+              <div key={version.id} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+                <p>
+                  {version.kind}: {version.name} v{version.version} • {version.state}
+                </p>
+                <div className="mt-1.5 flex gap-1.5">
+                  <Button size="sm" variant="outline" className="rounded-md" onClick={() => publishVersion(version.id)}>Publish</Button>
+                  <Button size="sm" variant="outline" className="rounded-md" onClick={() => rollbackVersion(version.id)}>Rollback</Button>
+                </div>
+              </div>
             ))}
           </CardContent>
         </Card>

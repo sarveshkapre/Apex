@@ -23,6 +23,7 @@ import {
   approvalDecisionSchema,
   aiPromptSchema,
   attachmentCreateSchema,
+  approvalDelegationSchema,
   commentCreateSchema,
   configVersionCreateSchema,
   configVersionPublishSchema,
@@ -30,6 +31,7 @@ import {
   connectorRunSchema,
   csvPreviewSchema,
   customSchemaCreateSchema,
+  exceptionActionSchema,
   externalTicketLinkCreateSchema,
   notificationRuleCreateSchema,
   objectCreateSchema,
@@ -39,6 +41,9 @@ import {
   runWorkflowSchema,
   savedViewCreateSchema,
   signalIngestSchema,
+  workflowDefinitionCreateSchema,
+  workflowDefinitionStateSchema,
+  workflowSimulationSchema,
   workItemCreateSchema,
   workItemUpdateSchema
 } from "./schemas";
@@ -538,6 +543,59 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data: workItem });
   });
 
+  router.get("/exceptions", (req, res) => {
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const data = [...store.workItems.values()].filter(
+      (item) => item.type === "Exception" && (status ? item.status === status : true)
+    );
+    res.json({ data });
+  });
+
+  router.post("/exceptions/:id/action", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = exceptionActionSchema.parse(req.body);
+    const exception = store.workItems.get(req.params.id);
+    if (!exception || exception.type !== "Exception") {
+      res.status(404).json({ error: "Exception work item not found" });
+      return;
+    }
+
+    if (parsed.action === "retry") {
+      exception.status = "In Progress";
+    }
+    if (parsed.action === "resolve") {
+      exception.status = "Completed";
+    }
+    if (parsed.action === "escalate") {
+      exception.status = "Waiting";
+      exception.assignmentGroup = "Vendor Escalation";
+    }
+
+    exception.comments.push({
+      id: store.createId(),
+      authorId: actor.id,
+      body: `${parsed.action.toUpperCase()}: ${parsed.reason}`,
+      mentions: [],
+      createdAt: nowIso()
+    });
+    exception.updatedAt = nowIso();
+    store.workItems.set(exception.id, exception);
+
+    store.pushTimeline({
+      tenantId: exception.tenantId,
+      workspaceId: exception.workspaceId,
+      entityType: "work-item",
+      entityId: exception.id,
+      eventType: "object.updated",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { action: parsed.action, reason: parsed.reason }
+    });
+
+    res.json({ data: exception });
+  });
+
   router.post("/work-items/:id/comments", (req, res) => {
     const actor = getActor(req.headers);
     permission(can(actor.role, "workflow:run"));
@@ -1025,6 +1083,17 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data });
   });
 
+  router.get("/approvals/inbox", (req, res) => {
+    const actor = getActor(req.headers);
+    const approverId = req.query.approverId ? String(req.query.approverId) : actor.id;
+    const decision = req.query.decision ? String(req.query.decision) : undefined;
+    const data = [...store.approvals.values()].filter(
+      (approval) =>
+        approval.approverId === approverId && (decision ? approval.decision === decision : true)
+    );
+    res.json({ data });
+  });
+
   router.post("/approvals/:id/decision", (req, res) => {
     const actor = getActor(req.headers);
     const parsed = approvalDecisionSchema.parse(req.body);
@@ -1032,8 +1101,152 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data: approval });
   });
 
+  router.post("/approvals/:id/delegate", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "approval:decide"));
+    const parsed = approvalDelegationSchema.parse(req.body);
+    const approval = store.approvals.get(req.params.id);
+    if (!approval) {
+      res.status(404).json({ error: "Approval not found" });
+      return;
+    }
+    if (approval.approverId !== actor.id && actor.role !== "it-admin") {
+      res.status(403).json({ error: "Only assigned approver or admin can delegate" });
+      return;
+    }
+    approval.approverId = parsed.approverId;
+    approval.comment = parsed.comment ?? approval.comment;
+    store.approvals.set(approval.id, approval);
+    res.json({ data: approval });
+  });
+
   router.get("/workflows/definitions", (_req, res) => {
     res.json({ data: [...store.workflowDefinitions.values()] });
+  });
+
+  router.post("/workflows/definitions", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = workflowDefinitionCreateSchema.parse(req.body);
+    const definition = {
+      id: parsed.id ?? store.createId(),
+      name: parsed.name,
+      version: 1,
+      playbook: parsed.playbook,
+      trigger: parsed.trigger,
+      steps: parsed.steps.map((step) => ({
+        id: step.id ?? store.createId(),
+        name: step.name,
+        type: step.type,
+        riskLevel: step.riskLevel,
+        config: step.config
+      })),
+      active: false,
+      createdAt: nowIso()
+    };
+    store.workflowDefinitions.set(definition.id, definition);
+
+    const version: ConfigVersion = {
+      id: store.createId(),
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      kind: "workflow",
+      name: definition.name,
+      version: definition.version,
+      state: "draft",
+      changedBy: actor.id,
+      reason: "Created workflow draft",
+      payload: definition,
+      createdAt: nowIso()
+    };
+    store.configVersions.set(version.id, version);
+
+    res.status(201).json({ data: definition });
+  });
+
+  router.post("/workflows/definitions/:id/state", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = workflowDefinitionStateSchema.parse(req.body);
+    const definition = store.workflowDefinitions.get(req.params.id);
+    if (!definition) {
+      res.status(404).json({ error: "Workflow definition not found" });
+      return;
+    }
+
+    if (parsed.action === "publish") {
+      definition.active = true;
+      definition.publishedAt = nowIso();
+    } else {
+      definition.active = false;
+    }
+    definition.version += 1;
+    store.workflowDefinitions.set(definition.id, definition);
+
+    const version: ConfigVersion = {
+      id: store.createId(),
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      kind: "workflow",
+      name: definition.name,
+      version: definition.version,
+      state: parsed.action === "publish" ? "published" : "rolled_back",
+      changedBy: actor.id,
+      reason: parsed.reason,
+      payload: { ...definition },
+      createdAt: nowIso()
+    };
+    store.configVersions.set(version.id, version);
+
+    store.pushTimeline({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      entityType: "workflow",
+      entityId: definition.id,
+      eventType: "config.published",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { action: parsed.action, reason: parsed.reason, version: definition.version }
+    });
+
+    res.json({ data: definition });
+  });
+
+  router.post("/workflows/definitions/:id/simulate", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = workflowSimulationSchema.parse(req.body);
+    const definition = store.workflowDefinitions.get(req.params.id);
+    if (!definition) {
+      res.status(404).json({ error: "Workflow definition not found" });
+      return;
+    }
+    const plan = definition.steps.map((step, index) => ({
+      order: index + 1,
+      stepId: step.id,
+      name: step.name,
+      type: step.type,
+      riskLevel: step.riskLevel,
+      requiresApproval: step.type === "approval" || step.riskLevel === "high"
+    }));
+    store.pushTimeline({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      entityType: "workflow",
+      entityId: definition.id,
+      eventType: "workflow.step.executed",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { simulation: true, inputs: parsed.inputs }
+    });
+    res.json({
+      data: {
+        workflowDefinitionId: definition.id,
+        inputs: parsed.inputs,
+        plan,
+        outcome: "dry-run-complete"
+      }
+    });
   });
 
   router.post("/workflows/runs", (req, res) => {
@@ -1284,6 +1497,11 @@ export const createRoutes = (store: ApexStore): Router => {
 
     if (error instanceof Error && error.message.includes("Permission denied")) {
       res.status(403).json({ error: error.message });
+      return;
+    }
+
+    if (error instanceof Error && error.message.includes("requires")) {
+      res.status(400).json({ error: error.message });
       return;
     }
 

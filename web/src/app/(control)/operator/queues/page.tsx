@@ -5,10 +5,15 @@ import { QueueOps } from "@/components/operator/queue-ops";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getSlaBreaches, listWorkItems } from "@/lib/apex";
+import { getSlaBreaches, listApprovalsInbox, listExceptions, listWorkItems } from "@/lib/apex";
 
 export default async function QueueCenterPage() {
-  const [items, breaches] = await Promise.all([listWorkItems(), getSlaBreaches()]);
+  const [items, breaches, approvals, exceptions] = await Promise.all([
+    listWorkItems(),
+    getSlaBreaches(),
+    listApprovalsInbox("manager-approver"),
+    listExceptions()
+  ]);
 
   return (
     <div className="space-y-4">
@@ -24,7 +29,7 @@ export default async function QueueCenterPage() {
         </CardContent>
       </Card>
 
-      <QueueOps items={items} breaches={breaches.breaches} />
+      <QueueOps items={items} breaches={breaches.breaches} approvals={approvals} exceptions={exceptions} />
 
       <div className="grid gap-3">
         {items.map((item) => (

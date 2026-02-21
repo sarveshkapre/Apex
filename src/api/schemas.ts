@@ -201,3 +201,52 @@ export const csvPreviewSchema = z.object({
 export const aiPromptSchema = z.object({
   prompt: z.string().min(1)
 });
+
+export const workflowDefinitionCreateSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1),
+  playbook: z.string().min(1),
+  trigger: z.object({
+    kind: z.enum(["event", "schedule", "manual"]),
+    value: z.string().min(1)
+  }),
+  steps: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        name: z.string().min(1),
+        type: z.enum([
+          "human-task",
+          "approval",
+          "automation",
+          "condition",
+          "wait",
+          "notification",
+          "update-object",
+          "create-work-item"
+        ]),
+        riskLevel: z.enum(["low", "medium", "high"]),
+        config: z.record(z.string(), z.unknown()).default({})
+      })
+    )
+    .min(1)
+});
+
+export const workflowDefinitionStateSchema = z.object({
+  action: z.enum(["publish", "rollback"]),
+  reason: z.string().min(1)
+});
+
+export const workflowSimulationSchema = z.object({
+  inputs: z.record(z.string(), z.unknown()).default({})
+});
+
+export const approvalDelegationSchema = z.object({
+  approverId: z.string().min(1),
+  comment: z.string().optional()
+});
+
+export const exceptionActionSchema = z.object({
+  action: z.enum(["retry", "resolve", "escalate"]),
+  reason: z.string().min(1)
+});

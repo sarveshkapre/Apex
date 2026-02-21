@@ -16,6 +16,7 @@ import {
   QualityDashboard,
   SavedView,
   SlaBreachesResponse,
+  WorkflowSimulationResult,
   WorkItem,
   WorkflowDefinition
 } from "@/lib/types";
@@ -138,6 +139,131 @@ export const runWorkflow = async (definitionId: string, inputs: Record<string, u
     throw new Error("Failed to start workflow");
   }
   return response.json();
+};
+
+export const createWorkflowDefinition = async (payload: {
+  name: string;
+  playbook: string;
+  triggerKind: "event" | "schedule" | "manual";
+  triggerValue: string;
+  steps: Array<{ name: string; type: string; riskLevel: "low" | "medium" | "high" }>;
+}) => {
+  return fetch(`${API_BASE}/workflows/definitions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      name: payload.name,
+      playbook: payload.playbook,
+      trigger: {
+        kind: payload.triggerKind,
+        value: payload.triggerValue
+      },
+      steps: payload.steps.map((step) => ({
+        ...step,
+        config: {}
+      }))
+    })
+  });
+};
+
+export const transitionWorkflowDefinition = async (
+  definitionId: string,
+  action: "publish" | "rollback",
+  reason: string
+) => {
+  return fetch(`${API_BASE}/workflows/definitions/${definitionId}/state`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({ action, reason })
+  });
+};
+
+export const simulateWorkflowDefinition = async (
+  definitionId: string,
+  inputs: Record<string, unknown>
+): Promise<WorkflowSimulationResult> => {
+  return safe(
+    async () => {
+      const response = await fetch(`${API_BASE}/workflows/definitions/${definitionId}/simulate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-actor-id": "ui-operator",
+          "x-actor-role": "it-agent"
+        },
+        body: JSON.stringify({ inputs })
+      });
+      if (!response.ok) {
+        throw new Error("simulation failed");
+      }
+      const json = (await response.json()) as ApiResponse<WorkflowSimulationResult>;
+      return json.data;
+    },
+    {
+      workflowDefinitionId: definitionId,
+      plan: [],
+      outcome: "failed"
+    }
+  );
+};
+
+export const listApprovalsInbox = async (approverId: string): Promise<Approval[]> => {
+  return safe(
+    () => get<Approval[]>(`/approvals/inbox?approverId=${encodeURIComponent(approverId)}`),
+    mockApprovals
+  );
+};
+
+export const decideApproval = async (approvalId: string, decision: "approved" | "rejected", comment?: string) => {
+  return fetch(`${API_BASE}/approvals/${approvalId}/decision`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "manager-approver",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({ decision, comment })
+  });
+};
+
+export const delegateApproval = async (approvalId: string, approverId: string, comment?: string) => {
+  return fetch(`${API_BASE}/approvals/${approvalId}/delegate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "manager-approver",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({ approverId, comment })
+  });
+};
+
+export const listExceptions = async (): Promise<WorkItem[]> => {
+  return safe(() => get<WorkItem[]>("/exceptions"), mockWorkItems.filter((item) => item.type === "Exception"));
+};
+
+export const runExceptionAction = async (
+  exceptionId: string,
+  action: "retry" | "resolve" | "escalate",
+  reason: string
+) => {
+  return fetch(`${API_BASE}/exceptions/${exceptionId}/action`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "operator-1",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({ action, reason })
+  });
 };
 
 export const getSlaBreaches = async (): Promise<SlaBreachesResponse> => {
@@ -294,6 +420,41 @@ export const listConfigVersions = async (): Promise<ConfigVersion[]> => {
   return safe(() => get<ConfigVersion[]>("/admin/config-versions"), mockConfigVersions);
 };
 
+export const createConfigVersion = async (payload: { kind: string; name: string; reason: string }) => {
+  return fetch(`${API_BASE}/admin/config-versions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      kind: payload.kind,
+      name: payload.name,
+      reason: payload.reason,
+      payload: {}
+    })
+  });
+};
+
+export const transitionConfigVersion = async (
+  id: string,
+  state: "published" | "rolled_back",
+  reason: string
+) => {
+  return fetch(`${API_BASE}/admin/config-versions/${id}/state`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({ state, reason })
+  });
+};
+
 export const listSavedViews = async (): Promise<SavedView[]> => {
   return safe(() => get<SavedView[]>("/views"), mockSavedViews);
 };
@@ -334,6 +495,56 @@ export const linkExternalTicket = async (payload: {
       "x-actor-role": "it-agent"
     },
     body: JSON.stringify(payload)
+  });
+};
+
+export const syncExternalTicketLink = async (id: string) => {
+  return fetch(`${API_BASE}/overlay/external-ticket-links/${id}/sync`, {
+    method: "POST",
+    headers: {
+      "x-actor-id": "ui-agent",
+      "x-actor-role": "it-agent"
+    }
+  });
+};
+
+export const previewCsvImport = async (rows: Array<Record<string, unknown>>) => {
+  return fetch(`${API_BASE}/import/csv/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      objectType: "Device",
+      rows,
+      fieldMapping: {
+        serial_number: "serial_number",
+        asset_tag: "asset_tag",
+        model: "model"
+      }
+    })
+  });
+};
+
+export const applyCsvImport = async (rows: Array<Record<string, unknown>>) => {
+  return fetch(`${API_BASE}/import/csv/apply`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      objectType: "Device",
+      rows,
+      fieldMapping: {
+        serial_number: "serial_number",
+        asset_tag: "asset_tag",
+        model: "model"
+      }
+    })
   });
 };
 
