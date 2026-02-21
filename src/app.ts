@@ -58,6 +58,104 @@ export const createApp = (): { app: express.Express; store: ApexStore } => {
     updatedAt: nowIso()
   });
 
+  const activeFigmaAccountId = store.createId();
+  store.objects.set(activeFigmaAccountId, {
+    id: activeFigmaAccountId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "SaaSAccount",
+    fields: {
+      app: "Figma",
+      person: "person-1",
+      status: "active",
+      role: "editor",
+      last_active: new Date(Date.now() - 42 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.88,
+      completeness: 0.84,
+      consistency: 0.91,
+      coverage: 0.82
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const activeSlackAccountId = store.createId();
+  store.objects.set(activeSlackAccountId, {
+    id: activeSlackAccountId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "SaaSAccount",
+    fields: {
+      app: "Slack",
+      person: "person-2",
+      status: "active",
+      role: "member",
+      last_active: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.95,
+      completeness: 0.88,
+      consistency: 0.94,
+      coverage: 0.9
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const failingFigmaAccountId = store.createId();
+  store.objects.set(failingFigmaAccountId, {
+    id: failingFigmaAccountId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "SaaSAccount",
+    fields: {
+      app: "Figma",
+      person: "person-3",
+      status: "active",
+      role: "viewer",
+      last_active: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+      simulate_reclaim_failure: true
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.78,
+      completeness: 0.82,
+      consistency: 0.89,
+      coverage: 0.8
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
+  const figmaLicenseId = store.createId();
+  store.objects.set(figmaLicenseId, {
+    id: figmaLicenseId,
+    tenantId: "tenant-demo",
+    workspaceId: "workspace-demo",
+    type: "License",
+    fields: {
+      app: "Figma",
+      sku: "FIGMA-EDITOR",
+      total_seats: 120,
+      assigned_seats: 104,
+      available_seats: 16,
+      renewal_date: new Date(Date.now() + 32 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    provenance: {},
+    quality: {
+      freshness: 0.9,
+      completeness: 0.9,
+      consistency: 0.92,
+      coverage: 0.89
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+
   const cloudResourceCompliantId = store.createId();
   store.objects.set(cloudResourceCompliantId, {
     id: cloudResourceCompliantId,

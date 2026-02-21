@@ -23,6 +23,8 @@ import {
   PolicyException,
   PolicyEvaluationResult,
   QualityDashboard,
+  SaasReclaimPolicy,
+  SaasReclaimRun,
   SavedView,
   SodRule,
   SlaBreachesResponse,
@@ -874,5 +876,98 @@ export const enforceCloudTags = async (payload: {
     throw new Error("Failed to enforce cloud tags");
   }
   const json = (await response.json()) as ApiResponse<CloudTagEnforcementResult>;
+  return json.data;
+};
+
+export const listSaasReclaimPolicies = async (): Promise<SaasReclaimPolicy[]> => {
+  return safe(() => get<SaasReclaimPolicy[]>("/saas/reclaim/policies"), []);
+};
+
+export const createSaasReclaimPolicy = async (payload: {
+  name: string;
+  appName: string;
+  inactivityDays: number;
+  warningDays: number;
+  autoReclaim: boolean;
+  schedule: "manual" | "daily" | "weekly";
+  enabled: boolean;
+}) => {
+  return fetch(`${API_BASE}/saas/reclaim/policies`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      ...payload
+    })
+  });
+};
+
+export const updateSaasReclaimPolicy = async (
+  policyId: string,
+  payload: Partial<{
+    name: string;
+    appName: string;
+    inactivityDays: number;
+    warningDays: number;
+    autoReclaim: boolean;
+    schedule: "manual" | "daily" | "weekly";
+    enabled: boolean;
+  }>
+) => {
+  return fetch(`${API_BASE}/saas/reclaim/policies/${policyId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-admin",
+      "x-actor-role": "it-admin"
+    },
+    body: JSON.stringify(payload)
+  });
+};
+
+export const listSaasReclaimRuns = async (policyId?: string): Promise<SaasReclaimRun[]> => {
+  const query = policyId ? `?policyId=${encodeURIComponent(policyId)}` : "";
+  return safe(() => get<SaasReclaimRun[]>(`/saas/reclaim/runs${query}`), []);
+};
+
+export const runSaasReclaim = async (policyId: string, mode: "dry-run" | "live"): Promise<SaasReclaimRun> => {
+  const response = await fetch(`${API_BASE}/saas/reclaim/runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({ policyId, mode })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to run SaaS reclaim");
+  }
+  const json = (await response.json()) as ApiResponse<SaasReclaimRun>;
+  return json.data;
+};
+
+export const retrySaasReclaimRun = async (
+  runId: string,
+  mode: "dry-run" | "live" = "live"
+): Promise<SaasReclaimRun> => {
+  const response = await fetch(`${API_BASE}/saas/reclaim/runs/${runId}/retry`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({ mode })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to retry SaaS reclaim run");
+  }
+  const json = (await response.json()) as ApiResponse<SaasReclaimRun>;
   return json.data;
 };

@@ -14,6 +14,8 @@ import {
   NotificationRule,
   PolicyDefinition,
   PolicyException,
+  SaasReclaimPolicy,
+  SaasReclaimRun,
   SavedView,
   SodRule,
   ApprovalMatrixRule,
@@ -51,6 +53,8 @@ export class ApexStore {
   approvalMatrixRules = new Map<string, ApprovalMatrixRule>();
   catalogItems = new Map<string, CatalogItemDefinition>();
   externalTicketComments = new Map<string, ExternalTicketComment>();
+  saasReclaimPolicies = new Map<string, SaasReclaimPolicy>();
+  saasReclaimRuns = new Map<string, SaasReclaimRun>();
 
   createId(): string {
     return uuidv4();

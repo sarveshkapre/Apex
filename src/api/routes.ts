@@ -15,6 +15,8 @@ import {
   GraphRelationship,
   NotificationRule,
   PolicyDefinition,
+  SaasReclaimPolicy,
+  SaasReclaimRun,
   SavedView,
   SodRule,
   SourceSignal,
@@ -56,6 +58,10 @@ import {
   runWorkflowSchema,
   savedViewCreateSchema,
   signalIngestSchema,
+  saasReclaimPolicyCreateSchema,
+  saasReclaimPolicyUpdateSchema,
+  saasReclaimRunCreateSchema,
+  saasReclaimRunRetrySchema,
   sodRuleCreateSchema,
   workflowDefinitionCreateSchema,
   workflowDefinitionStateSchema,
@@ -125,6 +131,18 @@ const missingTagsForResource = (object: GraphObject, requiredTags: string[]): st
     const value = tags[tag];
     return value === undefined || value === "";
   });
+};
+
+const getInactiveDays = (lastActiveRaw: unknown): number => {
+  if (typeof lastActiveRaw !== "string") {
+    return Number.POSITIVE_INFINITY;
+  }
+  const last = new Date(lastActiveRaw).getTime();
+  if (Number.isNaN(last)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const diffMs = Date.now() - last;
+  return Math.floor(diffMs / (24 * 60 * 60 * 1000));
 };
 
 export const createRoutes = (store: ApexStore): Router => {
@@ -375,6 +393,193 @@ export const createRoutes = (store: ApexStore): Router => {
       store.approvalMatrixRules.set(rule.id, rule);
     }
   }
+
+  if (store.saasReclaimPolicies.size === 0) {
+    const baselinePolicy: SaasReclaimPolicy = {
+      id: "saas-reclaim-figma",
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      name: "Figma inactive seat reclaim",
+      appName: "Figma",
+      inactivityDays: 30,
+      warningDays: 7,
+      autoReclaim: true,
+      schedule: "weekly",
+      enabled: true,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.saasReclaimPolicies.set(baselinePolicy.id, baselinePolicy);
+  }
+
+  const runSaasReclaim = (
+    policy: SaasReclaimPolicy,
+    actorId: string,
+    mode: "dry-run" | "live" | "retry",
+    includeAccountIds?: Set<string>
+  ): SaasReclaimRun => {
+    const accounts = [...store.objects.values()].filter((object) => {
+      if (object.type !== "SaaSAccount") {
+        return false;
+      }
+      const app = String(object.fields.app ?? "");
+      const appMatch = policy.appName === "*" || app.toLowerCase() === policy.appName.toLowerCase();
+      const includeMatch = includeAccountIds ? includeAccountIds.has(object.id) : true;
+      return appMatch && includeMatch;
+    });
+
+    const candidates = accounts.filter((account) => {
+      const status = String(account.fields.status ?? "").toLowerCase();
+      if (status === "deprovisioned" || status === "inactive" || status === "revoked") {
+        return false;
+      }
+      const inactiveDays = getInactiveDays(account.fields.last_active ?? account.fields.lastActive);
+      return inactiveDays >= policy.inactivityDays;
+    });
+
+    let reclaimedCount = 0;
+    let failedCount = 0;
+    const createdExceptionIds: string[] = [];
+
+    const runCandidates = candidates.map((candidate) => {
+      const daysInactive = getInactiveDays(candidate.fields.last_active ?? candidate.fields.lastActive);
+
+      if (candidate.fields.simulate_reclaim_failure === true) {
+        failedCount += 1;
+        if (mode !== "dry-run") {
+          const exception: WorkItem = {
+            id: store.createId(),
+            tenantId: candidate.tenantId,
+            workspaceId: candidate.workspaceId,
+            type: "Exception",
+            status: "Submitted",
+            priority: "P2",
+            title: `License reclaim failed for ${String(candidate.fields.app ?? candidate.id)}`,
+            description: `Automatic reclaim failed for account ${candidate.id}.`,
+            requesterId: actorId,
+            assignmentGroup: "SaaS Governance",
+            linkedObjectIds: [candidate.id],
+            tags: ["saas", "license-reclaim", "automation-failed"],
+            comments: [],
+            attachments: [],
+            createdAt: nowIso(),
+            updatedAt: nowIso()
+          };
+          store.workItems.set(exception.id, exception);
+          createdExceptionIds.push(exception.id);
+        }
+        return {
+          accountObjectId: candidate.id,
+          app: String(candidate.fields.app ?? "Unknown"),
+          personId: String(candidate.fields.person ?? candidate.fields.person_id ?? ""),
+          daysInactive,
+          action: "failed" as const,
+          reason: "Reclaim execution failed. Routed to exception queue."
+        };
+      }
+
+      if (mode === "dry-run") {
+        return {
+          accountObjectId: candidate.id,
+          app: String(candidate.fields.app ?? "Unknown"),
+          personId: String(candidate.fields.person ?? candidate.fields.person_id ?? ""),
+          daysInactive,
+          action: "none" as const,
+          reason: "Would reclaim on live execution."
+        };
+      }
+
+      if (!policy.autoReclaim) {
+        return {
+          accountObjectId: candidate.id,
+          app: String(candidate.fields.app ?? "Unknown"),
+          personId: String(candidate.fields.person ?? candidate.fields.person_id ?? ""),
+          daysInactive,
+          action: "skipped" as const,
+          reason: "Auto reclaim disabled. Requires manual review."
+        };
+      }
+
+      candidate.fields = {
+        ...candidate.fields,
+        status: "deprovisioned",
+        deprovisioned_at: nowIso()
+      };
+      candidate.updatedAt = nowIso();
+      store.objects.set(candidate.id, candidate);
+      reclaimedCount += 1;
+
+      store.pushTimeline({
+        tenantId: candidate.tenantId,
+        workspaceId: candidate.workspaceId,
+        entityType: "object",
+        entityId: candidate.id,
+        eventType: "object.updated",
+        actor: actorId,
+        createdAt: nowIso(),
+        payload: {
+          saasReclaim: true,
+          policyId: policy.id,
+          status: "deprovisioned"
+        }
+      });
+
+      return {
+        accountObjectId: candidate.id,
+        app: String(candidate.fields.app ?? "Unknown"),
+        personId: String(candidate.fields.person ?? candidate.fields.person_id ?? ""),
+        daysInactive,
+        action: "reclaimed" as const,
+        reason: "Account deprovisioned and license reclaimed."
+      };
+    });
+
+    let status: SaasReclaimRun["status"] = "success";
+    if (failedCount > 0 && reclaimedCount > 0) {
+      status = "partial";
+    } else if (failedCount > 0 && reclaimedCount === 0) {
+      status = "failed";
+    }
+
+    const run: SaasReclaimRun = {
+      id: store.createId(),
+      policyId: policy.id,
+      mode,
+      status,
+      startedAt: nowIso(),
+      completedAt: nowIso(),
+      scannedAccounts: accounts.length,
+      candidateCount: candidates.length,
+      reclaimedCount,
+      failedCount,
+      createdExceptionIds,
+      candidates: runCandidates
+    };
+    store.saasReclaimRuns.set(run.id, run);
+
+    policy.lastRunAt = run.completedAt;
+    policy.updatedAt = nowIso();
+    store.saasReclaimPolicies.set(policy.id, policy);
+
+    store.pushTimeline({
+      tenantId: policy.tenantId,
+      workspaceId: policy.workspaceId,
+      entityType: "workflow",
+      entityId: policy.id,
+      eventType: "saas.reclaim.run",
+      actor: actorId,
+      createdAt: nowIso(),
+      payload: {
+        mode: run.mode,
+        status: run.status,
+        candidateCount: run.candidateCount,
+        reclaimedCount: run.reclaimedCount,
+        failedCount: run.failedCount
+      }
+    });
+
+    return run;
+  };
 
   router.get("/health", (_req, res) => {
     res.json({ ok: true, service: "apex-control-plane", now: nowIso() });
@@ -702,6 +907,103 @@ export const createRoutes = (store: ApexStore): Router => {
         remediations
       }
     });
+  });
+
+  router.get("/saas/reclaim/policies", (_req, res) => {
+    res.json({ data: [...store.saasReclaimPolicies.values()] });
+  });
+
+  router.post("/saas/reclaim/policies", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = saasReclaimPolicyCreateSchema.parse(req.body);
+    const policy: SaasReclaimPolicy = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      appName: parsed.appName,
+      inactivityDays: parsed.inactivityDays,
+      warningDays: parsed.warningDays,
+      autoReclaim: parsed.autoReclaim,
+      schedule: parsed.schedule,
+      enabled: parsed.enabled,
+      nextRunAt: parsed.nextRunAt,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.saasReclaimPolicies.set(policy.id, policy);
+    res.status(201).json({ data: policy });
+  });
+
+  router.patch("/saas/reclaim/policies/:id", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = saasReclaimPolicyUpdateSchema.parse(req.body);
+    const policy = store.saasReclaimPolicies.get(req.params.id);
+    if (!policy) {
+      res.status(404).json({ error: "SaaS reclaim policy not found" });
+      return;
+    }
+    if (parsed.name !== undefined) policy.name = parsed.name;
+    if (parsed.appName !== undefined) policy.appName = parsed.appName;
+    if (parsed.inactivityDays !== undefined) policy.inactivityDays = parsed.inactivityDays;
+    if (parsed.warningDays !== undefined) policy.warningDays = parsed.warningDays;
+    if (parsed.autoReclaim !== undefined) policy.autoReclaim = parsed.autoReclaim;
+    if (parsed.schedule !== undefined) policy.schedule = parsed.schedule;
+    if (parsed.enabled !== undefined) policy.enabled = parsed.enabled;
+    if (parsed.nextRunAt !== undefined) policy.nextRunAt = parsed.nextRunAt;
+    policy.updatedAt = nowIso();
+    store.saasReclaimPolicies.set(policy.id, policy);
+    res.json({ data: policy });
+  });
+
+  router.get("/saas/reclaim/runs", (req, res) => {
+    const policyId = req.query.policyId ? String(req.query.policyId) : undefined;
+    const data = [...store.saasReclaimRuns.values()]
+      .filter((run) => (policyId ? run.policyId === policyId : true))
+      .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
+    res.json({ data });
+  });
+
+  router.post("/saas/reclaim/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = saasReclaimRunCreateSchema.parse(req.body);
+    const policy = store.saasReclaimPolicies.get(parsed.policyId);
+    if (!policy) {
+      res.status(404).json({ error: "SaaS reclaim policy not found" });
+      return;
+    }
+    if (!policy.enabled) {
+      res.status(409).json({ error: "SaaS reclaim policy is disabled" });
+      return;
+    }
+    const mode = parsed.mode === "dry-run" ? "dry-run" : "live";
+    const run = runSaasReclaim(policy, actor.id, mode);
+    res.status(201).json({ data: run });
+  });
+
+  router.post("/saas/reclaim/runs/:id/retry", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = saasReclaimRunRetrySchema.parse(req.body);
+    const priorRun = store.saasReclaimRuns.get(req.params.id);
+    if (!priorRun) {
+      res.status(404).json({ error: "SaaS reclaim run not found" });
+      return;
+    }
+    const policy = store.saasReclaimPolicies.get(priorRun.policyId);
+    if (!policy) {
+      res.status(404).json({ error: "SaaS reclaim policy not found" });
+      return;
+    }
+    const failedIds = new Set(
+      priorRun.candidates.filter((candidate) => candidate.action === "failed").map((candidate) => candidate.accountObjectId)
+    );
+    const retryMode = parsed.mode === "dry-run" ? "dry-run" : "retry";
+    const run = runSaasReclaim(policy, actor.id, retryMode, failedIds);
+    res.status(201).json({ data: run });
   });
 
   router.get("/catalog/items", (_req, res) => {

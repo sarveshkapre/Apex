@@ -393,3 +393,36 @@ export const cloudTagEnforceSchema = z.object({
   dryRun: z.boolean().default(true),
   autoTag: z.boolean().default(true)
 });
+
+export const saasReclaimPolicyCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  appName: z.string().min(1),
+  inactivityDays: z.number().int().positive(),
+  warningDays: z.number().int().nonnegative().default(7),
+  autoReclaim: z.boolean().default(true),
+  schedule: z.enum(["manual", "daily", "weekly"]).default("manual"),
+  enabled: z.boolean().default(true),
+  nextRunAt: z.string().datetime().optional()
+});
+
+export const saasReclaimPolicyUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  appName: z.string().min(1).optional(),
+  inactivityDays: z.number().int().positive().optional(),
+  warningDays: z.number().int().nonnegative().optional(),
+  autoReclaim: z.boolean().optional(),
+  schedule: z.enum(["manual", "daily", "weekly"]).optional(),
+  enabled: z.boolean().optional(),
+  nextRunAt: z.string().datetime().optional()
+});
+
+export const saasReclaimRunCreateSchema = z.object({
+  policyId: z.string().min(1),
+  mode: z.enum(["dry-run", "live"]).default("dry-run")
+});
+
+export const saasReclaimRunRetrySchema = z.object({
+  mode: z.enum(["dry-run", "live"]).default("live")
+});

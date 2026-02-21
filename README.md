@@ -49,6 +49,7 @@ This repository now ships a full-stack implementation baseline for Apex:
   - approvals inbox + delegation (`/v1/approvals/inbox`, `/v1/approvals/:id/delegate`)
   - exception queue operations (`/v1/exceptions`, `/v1/exceptions/:id/action`)
   - cloud tag governance coverage + enforcement (`/v1/cloud/tag-governance/coverage`, `/v1/cloud/tag-governance/enforce`)
+  - SaaS reclaim policies + runs + retries (`/v1/saas/reclaim/policies`, `/v1/saas/reclaim/runs`, `/v1/saas/reclaim/runs/:id/retry`)
   - RBAC governance controls (`/v1/admin/rbac/field-restrictions`, `/v1/admin/rbac/sod-rules`, `/v1/admin/rbac/approval-matrix`, `/v1/admin/rbac/authorize`)
 - AI assistant APIs:
   - policy draft assistant (`/v1/ai/policy-draft`)
@@ -72,6 +73,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Portal catalog request dialog with dynamic form preview + policy-driven approval submission
 - Portal asset/access action buttons now create linked requests/incidents against selected objects
 - Operator Cloud Tag Governance module with dry-run/live remediation controls
+- Operator SaaS Governance module for reclaim policy authoring, run history, and retry controls
 - Reports evidence export panel with downloadable JSON package per work item
 - Admin catalog builder for item creation, workflow mapping, dynamic fields, and activation toggles
 - Policy exception lifecycle controls (waive/renew/resolve/reopen) in Policies & Compliance
@@ -113,6 +115,7 @@ npm --prefix web run build
 - `GET /v1/catalog/items`, `POST /v1/catalog/items`, `PATCH /v1/catalog/items/:id`
 - `POST /v1/catalog/items/:id/preview`, `POST /v1/catalog/submit`
 - `GET /v1/cloud/tag-governance/coverage`, `POST /v1/cloud/tag-governance/enforce`
+- `GET/POST/PATCH /v1/saas/reclaim/policies`, `GET/POST /v1/saas/reclaim/runs`, `POST /v1/saas/reclaim/runs/:id/retry`
 - `POST /v1/work-items`, `GET /v1/work-items`, `PATCH /v1/work-items/:id`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
 - `GET /v1/workflows/definitions`

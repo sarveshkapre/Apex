@@ -378,3 +378,44 @@ export interface CloudTagEnforcementResult {
     exceptionId?: string;
   }>;
 }
+
+export interface SaasReclaimPolicy {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  name: string;
+  appName: string;
+  inactivityDays: number;
+  warningDays: number;
+  autoReclaim: boolean;
+  schedule: "manual" | "daily" | "weekly";
+  enabled: boolean;
+  nextRunAt?: string;
+  lastRunAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaasReclaimRunCandidate {
+  accountObjectId: string;
+  app: string;
+  personId?: string;
+  daysInactive: number;
+  action: "none" | "reclaimed" | "skipped" | "failed";
+  reason: string;
+}
+
+export interface SaasReclaimRun {
+  id: string;
+  policyId: string;
+  mode: "dry-run" | "live" | "retry";
+  status: "success" | "failed" | "partial";
+  startedAt: string;
+  completedAt: string;
+  scannedAccounts: number;
+  candidateCount: number;
+  reclaimedCount: number;
+  failedCount: number;
+  createdExceptionIds: string[];
+  candidates: SaasReclaimRunCandidate[];
+}

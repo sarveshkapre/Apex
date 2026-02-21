@@ -457,4 +457,75 @@ describe("Apex API", () => {
     expect(resolved.status).toBe(200);
     expect(resolved.body.data.status).toBe("resolved");
   });
+
+  it("manages SaaS reclaim policies", async () => {
+    const { app } = createApp();
+
+    const list = await request(app).get("/v1/saas/reclaim/policies");
+    expect(list.status).toBe(200);
+    expect(list.body.data.length).toBeGreaterThan(0);
+
+    const created = await request(app)
+      .post("/v1/saas/reclaim/policies")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: "Slack reclaim policy",
+        appName: "Slack",
+        inactivityDays: 21,
+        warningDays: 5,
+        autoReclaim: false,
+        schedule: "weekly",
+        enabled: true
+      });
+    expect(created.status).toBe(201);
+
+    const patched = await request(app)
+      .patch(`/v1/saas/reclaim/policies/${created.body.data.id}`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ autoReclaim: true, inactivityDays: 30 });
+    expect(patched.status).toBe(200);
+    expect(patched.body.data.autoReclaim).toBe(true);
+    expect(patched.body.data.inactivityDays).toBe(30);
+  });
+
+  it("runs and retries SaaS reclaim workflow", async () => {
+    const { app } = createApp();
+
+    const policies = await request(app).get("/v1/saas/reclaim/policies");
+    expect(policies.status).toBe(200);
+    const policyId = policies.body.data[0].id as string;
+
+    const dryRun = await request(app)
+      .post("/v1/saas/reclaim/runs")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ policyId, mode: "dry-run" });
+    expect(dryRun.status).toBe(201);
+    expect(dryRun.body.data.mode).toBe("dry-run");
+    expect(typeof dryRun.body.data.candidateCount).toBe("number");
+
+    const liveRun = await request(app)
+      .post("/v1/saas/reclaim/runs")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ policyId, mode: "live" });
+    expect(liveRun.status).toBe(201);
+    expect(["success", "failed", "partial"]).toContain(liveRun.body.data.status);
+
+    const listedRuns = await request(app).get("/v1/saas/reclaim/runs").query({ policyId });
+    expect(listedRuns.status).toBe(200);
+    expect(listedRuns.body.data.length).toBeGreaterThan(0);
+
+    const retried = await request(app)
+      .post(`/v1/saas/reclaim/runs/${liveRun.body.data.id}/retry`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ mode: "live" });
+    expect(retried.status).toBe(201);
+    expect(["retry", "dry-run"]).toContain(retried.body.data.mode);
+  });
 });

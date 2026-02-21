@@ -101,6 +101,12 @@ export const operatorNav: NavItem[] = [
     icon: Cloud
   },
   {
+    href: "/operator/saas",
+    label: "SaaS",
+    description: "License reclaim and entitlement governance",
+    icon: AppWindow
+  },
+  {
     href: "/operator/integrations",
     label: "Integrations",
     description: "Connector health and sync control",

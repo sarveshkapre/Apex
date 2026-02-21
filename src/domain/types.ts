@@ -108,6 +108,7 @@ export type TimelineEventType =
   | "exception.created"
   | "policy.evaluated"
   | "policy.exception.updated"
+  | "saas.reclaim.run"
   | "external-ticket.linked"
   | "connector.sync"
   | "config.published"
@@ -529,4 +530,45 @@ export interface ExternalTicketComment {
   author: string;
   body: string;
   createdAt: string;
+}
+
+export interface SaasReclaimPolicy {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  appName: string;
+  inactivityDays: number;
+  warningDays: number;
+  autoReclaim: boolean;
+  schedule: "manual" | "daily" | "weekly";
+  enabled: boolean;
+  nextRunAt?: string;
+  lastRunAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaasReclaimRunCandidate {
+  accountObjectId: string;
+  app: string;
+  personId?: string;
+  daysInactive: number;
+  action: "none" | "reclaimed" | "skipped" | "failed";
+  reason: string;
+}
+
+export interface SaasReclaimRun {
+  id: string;
+  policyId: string;
+  mode: "dry-run" | "live" | "retry";
+  status: "success" | "failed" | "partial";
+  startedAt: string;
+  completedAt: string;
+  scannedAccounts: number;
+  candidateCount: number;
+  reclaimedCount: number;
+  failedCount: number;
+  createdExceptionIds: string[];
+  candidates: SaasReclaimRunCandidate[];
 }
