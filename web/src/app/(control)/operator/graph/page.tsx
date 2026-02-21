@@ -1,14 +1,15 @@
 import { GitMerge, Link2, Search } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatusBadge } from "@/components/app/status-badge";
+import { ObjectMergeLab } from "@/components/operator/object-merge-lab";
 import { ViewManager } from "@/components/operator/view-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { listObjects, listSavedViews } from "@/lib/apex";
+import { listObjectMergeRuns, listObjects, listSavedViews } from "@/lib/apex";
 
 export default async function GraphPage() {
-  const [objects, views] = await Promise.all([listObjects(), listSavedViews()]);
+  const [objects, views, mergeRuns] = await Promise.all([listObjects(), listSavedViews(), listObjectMergeRuns()]);
 
   return (
     <div className="space-y-4">
@@ -27,6 +28,8 @@ export default async function GraphPage() {
       </Card>
 
       <ViewManager initial={views} />
+
+      <ObjectMergeLab objects={objects} initialRuns={mergeRuns} />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {objects.map((object) => (

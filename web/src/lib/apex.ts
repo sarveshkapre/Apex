@@ -23,6 +23,9 @@ import {
   JmlMoverRun,
   KnowledgeArticle,
   NotificationRule,
+  ObjectMergeExecuteResult,
+  ObjectMergePreviewResult,
+  ObjectMergeRun,
   PolicyDefinition,
   PolicyException,
   PolicyEvaluationResult,
@@ -104,6 +107,62 @@ export const listObjectsByType = async (type: string): Promise<GraphObject[]> =>
     () => get<GraphObject[]>(`/objects?type=${encodeURIComponent(type)}`),
     mockObjects.filter((item) => item.type === type)
   );
+};
+
+export const listObjectMergeRuns = async (objectId?: string): Promise<ObjectMergeRun[]> => {
+  const query = objectId ? `?objectId=${encodeURIComponent(objectId)}` : "";
+  return safe(() => get<ObjectMergeRun[]>(`/object-merges/runs${query}`), []);
+};
+
+export const previewObjectMerge = async (payload: {
+  targetObjectId: string;
+  sourceObjectId: string;
+}): Promise<ObjectMergePreviewResult> => {
+  const response = await fetch(`${API_BASE}/object-merges/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to preview object merge");
+  }
+  const json = (await response.json()) as ApiResponse<ObjectMergePreviewResult>;
+  return json.data;
+};
+
+export const executeObjectMerge = async (payload: {
+  targetObjectId: string;
+  sourceObjectId: string;
+  reason: string;
+}): Promise<ObjectMergeExecuteResult> => {
+  const response = await fetch(`${API_BASE}/object-merges/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to execute object merge");
+  }
+  const json = (await response.json()) as ApiResponse<ObjectMergeExecuteResult>;
+  return json.data;
+};
+
+export const revertObjectMerge = async (mergeRunId: string) => {
+  return fetch(`${API_BASE}/object-merges/${mergeRunId}/revert`, {
+    method: "POST",
+    headers: {
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    }
+  });
 };
 
 export const listWorkItems = async (): Promise<WorkItem[]> => {

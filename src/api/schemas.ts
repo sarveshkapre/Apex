@@ -17,6 +17,17 @@ export const objectUpdateSchema = z.object({
   fields: z.record(z.string(), z.unknown())
 });
 
+export const objectMergePreviewSchema = z.object({
+  targetObjectId: z.string().min(1),
+  sourceObjectId: z.string().min(1)
+});
+
+export const objectMergeExecuteSchema = z.object({
+  targetObjectId: z.string().min(1),
+  sourceObjectId: z.string().min(1),
+  reason: z.string().min(1)
+});
+
 export const relationshipCreateSchema = z.object({
   tenantId: z.string().min(1),
   workspaceId: z.string().min(1),

@@ -75,6 +75,129 @@ describe("Apex API", () => {
     expect(listAfter.body.data.length).toBe(1);
   });
 
+  it("merges duplicate objects and supports reversible rollback", async () => {
+    const { app } = createApp();
+
+    const target = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Device",
+        fields: {
+          serial_number: "SN-DUP-001",
+          asset_tag: "LAP-DUP-TARGET",
+          hostname: "target-host",
+          model: "MacBook Pro"
+        }
+      });
+    expect(target.status).toBe(201);
+
+    const source = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Device",
+        fields: {
+          serial_number: "SN-DUP-001",
+          asset_tag: "LAP-DUP-SOURCE",
+          hostname: "source-host",
+          compliance_state: "non-compliant"
+        }
+      });
+    expect(source.status).toBe(201);
+
+    const people = await request(app).get("/v1/objects").query({ type: "Person" });
+    expect(people.status).toBe(200);
+    const personId = people.body.data[0].id as string;
+
+    const relationship = await request(app)
+      .post("/v1/relationships")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "assigned_to",
+        fromObjectId: source.body.data.id,
+        toObjectId: personId
+      });
+    expect(relationship.status).toBe(201);
+
+    const linkedItem = await request(app)
+      .post("/v1/work-items")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Request",
+        priority: "P2",
+        title: "Merge duplicate follow-up",
+        requesterId: "person-1",
+        linkedObjectIds: [source.body.data.id],
+        tags: []
+      });
+    expect(linkedItem.status).toBe(201);
+
+    const preview = await request(app)
+      .post("/v1/object-merges/preview")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        targetObjectId: target.body.data.id,
+        sourceObjectId: source.body.data.id
+      });
+    expect(preview.status).toBe(201);
+    expect(preview.body.data.run.fieldDecisions.length).toBeGreaterThan(0);
+    expect(preview.body.data.impact.relationshipsToMove).toBeGreaterThanOrEqual(1);
+
+    const executed = await request(app)
+      .post("/v1/object-merges/execute")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        targetObjectId: target.body.data.id,
+        sourceObjectId: source.body.data.id,
+        reason: "Duplicate serial across MDM + EDR"
+      });
+    expect(executed.status).toBe(201);
+    expect(executed.body.data.run.status).toBe("executed");
+
+    const sourceAfterMerge = await request(app).get(`/v1/objects/${source.body.data.id}`);
+    expect(sourceAfterMerge.status).toBe(404);
+
+    const relationshipsAfterMerge = await request(app).get("/v1/relationships");
+    expect(relationshipsAfterMerge.status).toBe(200);
+    expect(
+      relationshipsAfterMerge.body.data.some(
+        (item: { fromObjectId: string; toObjectId: string }) =>
+          item.fromObjectId === target.body.data.id && item.toObjectId === personId
+      )
+    ).toBe(true);
+
+    const workItemsAfterMerge = await request(app).get("/v1/work-items");
+    const mergedWorkItem = workItemsAfterMerge.body.data.find((item: { id: string }) => item.id === linkedItem.body.data.id);
+    expect(mergedWorkItem.linkedObjectIds.includes(target.body.data.id)).toBe(true);
+    expect(mergedWorkItem.linkedObjectIds.includes(source.body.data.id)).toBe(false);
+
+    const reverted = await request(app)
+      .post(`/v1/object-merges/${executed.body.data.run.id}/revert`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({});
+    expect(reverted.status).toBe(200);
+    expect(reverted.body.data.run.status).toBe("reverted");
+
+    const sourceAfterRevert = await request(app).get(`/v1/objects/${source.body.data.id}`);
+    expect(sourceAfterRevert.status).toBe(200);
+  });
+
   it("adds comment and attachment to a work item", async () => {
     const { app } = createApp();
 

@@ -16,6 +16,7 @@ import {
   GraphRelationship,
   JmlMoverPlan,
   JmlMoverRun,
+  ObjectMergeRun,
   NotificationRule,
   PolicyDefinition,
   ReportDefinition,
@@ -55,6 +56,8 @@ import {
   externalTicketLinkCreateSchema,
   fieldRestrictionCreateSchema,
   notificationRuleCreateSchema,
+  objectMergeExecuteSchema,
+  objectMergePreviewSchema,
   objectCreateSchema,
   objectUpdateSchema,
   policyExceptionActionSchema,
@@ -771,6 +774,92 @@ export const createRoutes = (store: ApexStore): Router => {
     return run;
   };
 
+  const deepCopy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+  const buildObjectMergePreview = (targetObjectId: string, sourceObjectId: string) => {
+    const target = store.objects.get(targetObjectId);
+    const source = store.objects.get(sourceObjectId);
+
+    if (!target || !source) {
+      return null;
+    }
+
+    if (target.id === source.id) {
+      return null;
+    }
+
+    if (target.type !== source.type) {
+      return null;
+    }
+
+    const targetUpdatedAt = new Date(target.updatedAt).getTime();
+    const sourceUpdatedAt = new Date(source.updatedAt).getTime();
+    const preferSource = sourceUpdatedAt > targetUpdatedAt;
+
+    const fields = [...new Set([...Object.keys(target.fields), ...Object.keys(source.fields)])].sort();
+    const fieldDecisions = fields.map((field) => {
+      const targetValue = target.fields[field];
+      const sourceValue = source.fields[field];
+
+      const targetMissing = targetValue === undefined || targetValue === null || targetValue === "";
+      const sourceMissing = sourceValue === undefined || sourceValue === null || sourceValue === "";
+      const sameValue = JSON.stringify(targetValue) === JSON.stringify(sourceValue);
+
+      if (targetMissing && !sourceMissing) {
+        return {
+          field,
+          targetValue,
+          sourceValue,
+          selected: "source" as const,
+          reason: "target field is empty"
+        };
+      }
+      if (!targetMissing && sourceMissing) {
+        return {
+          field,
+          targetValue,
+          sourceValue,
+          selected: "target" as const,
+          reason: "source field is empty"
+        };
+      }
+      if (sameValue) {
+        return {
+          field,
+          targetValue,
+          sourceValue,
+          selected: "target" as const,
+          reason: "values are equal"
+        };
+      }
+
+      return {
+        field,
+        targetValue,
+        sourceValue,
+        selected: preferSource ? ("source" as const) : ("target" as const),
+        reason: preferSource ? "source is newer" : "target is canonical"
+      };
+    });
+
+    const movedRelationshipIds = [...store.relationships.values()]
+      .filter((relationship) => relationship.fromObjectId === source.id || relationship.toObjectId === source.id)
+      .map((relationship) => relationship.id);
+
+    const relinkedWorkItemIds = [...store.workItems.values()]
+      .filter((workItem) => workItem.linkedObjectIds.includes(source.id))
+      .map((workItem) => workItem.id);
+
+    return {
+      target,
+      source,
+      objectType: target.type,
+      fieldDecisions,
+      movedRelationshipIds,
+      relinkedWorkItemIds
+    };
+  };
+
   const parseStringArrayField = (value: unknown): string[] => {
     if (Array.isArray(value)) {
       return value.map((item) => String(item)).filter((item) => item.length > 0);
@@ -1124,6 +1213,257 @@ export const createRoutes = (store: ApexStore): Router => {
     });
 
     res.json({ data: object });
+  });
+
+  router.get("/object-merges/runs", (req, res) => {
+    const objectId = req.query.objectId ? String(req.query.objectId) : undefined;
+    const data = [...store.objectMergeRuns.values()]
+      .filter((run) =>
+        objectId ? run.targetObjectId === objectId || run.sourceObjectId === objectId : true
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    res.json({ data });
+  });
+
+  router.post("/object-merges/preview", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:update"));
+    const parsed = objectMergePreviewSchema.parse(req.body);
+
+    const preview = buildObjectMergePreview(parsed.targetObjectId, parsed.sourceObjectId);
+    if (!preview) {
+      res.status(404).json({ error: "Merge candidate pair not found or not compatible" });
+      return;
+    }
+
+    const run: ObjectMergeRun = {
+      id: store.createId(),
+      tenantId: preview.target.tenantId,
+      workspaceId: preview.target.workspaceId,
+      targetObjectId: preview.target.id,
+      sourceObjectId: preview.source.id,
+      objectType: preview.objectType,
+      status: "previewed",
+      actorId: actor.id,
+      reason: "Preview only",
+      fieldDecisions: preview.fieldDecisions,
+      movedRelationshipIds: preview.movedRelationshipIds,
+      relinkedWorkItemIds: preview.relinkedWorkItemIds,
+      createdAt: nowIso()
+    };
+    store.objectMergeRuns.set(run.id, run);
+
+    res.status(201).json({
+      data: {
+        run,
+        impact: {
+          relationshipsToMove: preview.movedRelationshipIds.length,
+          workItemsToRelink: preview.relinkedWorkItemIds.length
+        }
+      }
+    });
+  });
+
+  router.post("/object-merges/execute", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:update"));
+    const parsed = objectMergeExecuteSchema.parse(req.body);
+
+    const preview = buildObjectMergePreview(parsed.targetObjectId, parsed.sourceObjectId);
+    if (!preview) {
+      res.status(404).json({ error: "Merge candidate pair not found or not compatible" });
+      return;
+    }
+
+    const targetSnapshot = deepCopy(preview.target);
+    const sourceSnapshot = deepCopy(preview.source);
+    const relationshipSnapshots = deepCopy(
+      [...store.relationships.values()].filter(
+        (relationship) =>
+          relationship.fromObjectId === preview.target.id ||
+          relationship.toObjectId === preview.target.id ||
+          relationship.fromObjectId === preview.source.id ||
+          relationship.toObjectId === preview.source.id
+      )
+    );
+    const workItemSnapshots = deepCopy(
+      [...store.workItems.values()].filter(
+        (workItem) =>
+          workItem.linkedObjectIds.includes(preview.target.id) ||
+          workItem.linkedObjectIds.includes(preview.source.id)
+      )
+    );
+
+    for (const decision of preview.fieldDecisions) {
+      if (decision.selected === "source") {
+        preview.target.fields[decision.field] = preview.source.fields[decision.field];
+      }
+      preview.target.provenance[decision.field] = [
+        ...(preview.target.provenance[decision.field] ?? []),
+        ...(preview.source.provenance[decision.field] ?? [])
+      ];
+    }
+    preview.target.updatedAt = nowIso();
+    store.objects.set(preview.target.id, preview.target);
+
+    for (const relationship of [...store.relationships.values()]) {
+      if (relationship.fromObjectId !== preview.source.id && relationship.toObjectId !== preview.source.id) {
+        continue;
+      }
+      const rewiredFrom = relationship.fromObjectId === preview.source.id ? preview.target.id : relationship.fromObjectId;
+      const rewiredTo = relationship.toObjectId === preview.source.id ? preview.target.id : relationship.toObjectId;
+      const duplicate = [...store.relationships.values()].find(
+        (candidate) =>
+          candidate.id !== relationship.id &&
+          candidate.type === relationship.type &&
+          candidate.fromObjectId === rewiredFrom &&
+          candidate.toObjectId === rewiredTo
+      );
+
+      if (duplicate) {
+        store.relationships.delete(relationship.id);
+        continue;
+      }
+
+      relationship.fromObjectId = rewiredFrom;
+      relationship.toObjectId = rewiredTo;
+      store.relationships.set(relationship.id, relationship);
+    }
+
+    for (const workItem of [...store.workItems.values()]) {
+      if (!workItem.linkedObjectIds.includes(preview.source.id)) {
+        continue;
+      }
+      workItem.linkedObjectIds = [...new Set(workItem.linkedObjectIds.map((id) => (id === preview.source.id ? preview.target.id : id)))];
+      workItem.updatedAt = nowIso();
+      store.workItems.set(workItem.id, workItem);
+    }
+
+    store.objects.delete(preview.source.id);
+
+    const reversibleUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const run: ObjectMergeRun = {
+      id: store.createId(),
+      tenantId: preview.target.tenantId,
+      workspaceId: preview.target.workspaceId,
+      targetObjectId: preview.target.id,
+      sourceObjectId: preview.source.id,
+      objectType: preview.objectType,
+      status: "executed",
+      reversibleUntil,
+      actorId: actor.id,
+      reason: parsed.reason,
+      fieldDecisions: preview.fieldDecisions,
+      movedRelationshipIds: preview.movedRelationshipIds,
+      relinkedWorkItemIds: preview.relinkedWorkItemIds,
+      createdAt: nowIso(),
+      executedAt: nowIso()
+    };
+
+    store.objectMergeRuns.set(run.id, run);
+    store.objectMergeUndo.set(run.id, {
+      targetSnapshot,
+      sourceSnapshot,
+      relationshipSnapshots,
+      workItemSnapshots
+    });
+
+    store.pushTimeline({
+      tenantId: run.tenantId,
+      workspaceId: run.workspaceId,
+      entityType: "object",
+      entityId: run.targetObjectId,
+      eventType: "object.merged",
+      actor: actor.id,
+      createdAt: nowIso(),
+      reason: parsed.reason,
+      payload: {
+        mergeRunId: run.id,
+        sourceObjectId: run.sourceObjectId,
+        movedRelationshipIds: run.movedRelationshipIds,
+        relinkedWorkItemIds: run.relinkedWorkItemIds
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        run,
+        mergedObject: preview.target
+      }
+    });
+  });
+
+  router.post("/object-merges/:id/revert", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:update"));
+
+    const run = store.objectMergeRuns.get(req.params.id);
+    if (!run) {
+      res.status(404).json({ error: "Merge run not found" });
+      return;
+    }
+    if (run.status !== "executed") {
+      res.status(409).json({ error: "Only executed merge runs can be reverted" });
+      return;
+    }
+    if (run.reversibleUntil && new Date(run.reversibleUntil).getTime() < Date.now()) {
+      res.status(409).json({ error: "Reversible window has expired" });
+      return;
+    }
+
+    const undo = store.objectMergeUndo.get(run.id);
+    if (!undo) {
+      res.status(404).json({ error: "Revert snapshot not found" });
+      return;
+    }
+
+    store.objects.set(undo.targetSnapshot.id, undo.targetSnapshot);
+    store.objects.set(undo.sourceSnapshot.id, undo.sourceSnapshot);
+
+    for (const relationship of [...store.relationships.values()]) {
+      if (
+        relationship.fromObjectId === run.targetObjectId ||
+        relationship.toObjectId === run.targetObjectId ||
+        relationship.fromObjectId === run.sourceObjectId ||
+        relationship.toObjectId === run.sourceObjectId
+      ) {
+        store.relationships.delete(relationship.id);
+      }
+    }
+    for (const relationship of undo.relationshipSnapshots) {
+      store.relationships.set(relationship.id, relationship);
+    }
+
+    for (const workItem of undo.workItemSnapshots) {
+      store.workItems.set(workItem.id, workItem);
+    }
+
+    run.status = "reverted";
+    run.revertedAt = nowIso();
+    store.objectMergeRuns.set(run.id, run);
+    store.objectMergeUndo.delete(run.id);
+
+    store.pushTimeline({
+      tenantId: run.tenantId,
+      workspaceId: run.workspaceId,
+      entityType: "object",
+      entityId: run.targetObjectId,
+      eventType: "object.merge.reverted",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        mergeRunId: run.id,
+        sourceObjectId: run.sourceObjectId
+      }
+    });
+
+    res.json({
+      data: {
+        run,
+        restoredTarget: undo.targetSnapshot,
+        restoredSource: undo.sourceSnapshot
+      }
+    });
   });
 
   router.post("/relationships", (req, res) => {

@@ -112,6 +112,8 @@ export type TimelineEventType =
   | "contract.renewal.run"
   | "report.run"
   | "jml.mover.executed"
+  | "object.merged"
+  | "object.merge.reverted"
   | "external-ticket.linked"
   | "connector.sync"
   | "config.published"
@@ -669,4 +671,31 @@ export interface JmlMoverRun {
   createdTaskIds: string[];
   createdApprovalIds: string[];
   createdAt: string;
+}
+
+export interface ObjectMergeFieldDecision {
+  field: string;
+  targetValue: unknown;
+  sourceValue: unknown;
+  selected: "target" | "source";
+  reason: string;
+}
+
+export interface ObjectMergeRun {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  targetObjectId: string;
+  sourceObjectId: string;
+  objectType: ObjectType;
+  status: "previewed" | "executed" | "reverted";
+  reversibleUntil?: string;
+  actorId: string;
+  reason?: string;
+  fieldDecisions: ObjectMergeFieldDecision[];
+  movedRelationshipIds: string[];
+  relinkedWorkItemIds: string[];
+  createdAt: string;
+  executedAt?: string;
+  revertedAt?: string;
 }

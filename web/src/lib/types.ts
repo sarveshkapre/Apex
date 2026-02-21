@@ -340,6 +340,46 @@ export interface JmlMoverExecutionResult {
   taskIds: string[];
 }
 
+export interface ObjectMergeFieldDecision {
+  field: string;
+  targetValue: unknown;
+  sourceValue: unknown;
+  selected: "target" | "source";
+  reason: string;
+}
+
+export interface ObjectMergeRun {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  targetObjectId: string;
+  sourceObjectId: string;
+  objectType: string;
+  status: "previewed" | "executed" | "reverted";
+  reversibleUntil?: string;
+  actorId: string;
+  reason?: string;
+  fieldDecisions: ObjectMergeFieldDecision[];
+  movedRelationshipIds: string[];
+  relinkedWorkItemIds: string[];
+  createdAt: string;
+  executedAt?: string;
+  revertedAt?: string;
+}
+
+export interface ObjectMergePreviewResult {
+  run: ObjectMergeRun;
+  impact: {
+    relationshipsToMove: number;
+    workItemsToRelink: number;
+  };
+}
+
+export interface ObjectMergeExecuteResult {
+  run: ObjectMergeRun;
+  mergedObject: GraphObject;
+}
+
 export interface FieldRestriction {
   id: string;
   objectType: string;

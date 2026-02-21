@@ -12,6 +12,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 
 - Asset Graph core object + relationship APIs
 - Immutable timeline events for object/workflow/approval changes
+- Duplicate merge preview/execute/revert workflow with reversible window
 - Signal ingestion + reconciliation candidate matching + canonical merge
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
@@ -41,6 +42,7 @@ This repository now ships a full-stack implementation baseline for Apex:
   - contract renewal governance (`/v1/contracts/renewals/overview`, `/v1/contracts/renewals/runs`)
   - report definitions and run artifacts (`/v1/reports/definitions`, `/v1/reports/runs`, `/v1/reports/runs/:id/export`)
   - JML mover planning and execution (`/v1/jml/mover/preview`, `/v1/jml/mover/execute`, `/v1/jml/mover/runs`)
+  - duplicate merge operations (`/v1/object-merges/preview`, `/v1/object-merges/execute`, `/v1/object-merges/:id/revert`, `/v1/object-merges/runs`)
   - connector CRUD + run history (`/v1/admin/connectors`, `/v1/admin/connectors/:id/run`)
   - notification rules (`/v1/admin/notifications`)
   - config versioning (`/v1/admin/config-versions`, publish/rollback state transitions)
@@ -84,6 +86,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Admin catalog builder for item creation, workflow mapping, dynamic fields, and activation toggles
 - Policy exception lifecycle controls (waive/renew/resolve/reopen) in Policies & Compliance
 - Workflow surface includes JML Mover planner with entitlement diff preview and execute path
+- Asset Graph includes duplicate merge workspace with impact preview and reversible merge runs
 
 ## Run
 
@@ -115,6 +118,7 @@ npm --prefix web run build
 
 - `GET /v1/health`
 - `POST /v1/objects`, `GET /v1/objects`, `PATCH /v1/objects/:id`
+- `GET /v1/object-merges/runs`, `POST /v1/object-merges/preview`, `POST /v1/object-merges/execute`, `POST /v1/object-merges/:id/revert`
 - `POST /v1/relationships`, `GET /v1/relationships`
 - `GET /v1/timeline/:entityId`
 - `POST /v1/signals/preview`, `POST /v1/signals/ingest`

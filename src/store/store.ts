@@ -13,6 +13,7 @@ import {
   GraphObject,
   GraphRelationship,
   JmlMoverRun,
+  ObjectMergeRun,
   NotificationRule,
   PolicyDefinition,
   PolicyException,
@@ -63,6 +64,16 @@ export class ApexStore {
   reportDefinitions = new Map<string, ReportDefinition>();
   reportRuns = new Map<string, ReportRun>();
   jmlMoverRuns = new Map<string, JmlMoverRun>();
+  objectMergeRuns = new Map<string, ObjectMergeRun>();
+  objectMergeUndo = new Map<
+    string,
+    {
+      targetSnapshot: GraphObject;
+      sourceSnapshot: GraphObject;
+      relationshipSnapshots: GraphRelationship[];
+      workItemSnapshots: WorkItem[];
+    }
+  >();
 
   createId(): string {
     return uuidv4();
