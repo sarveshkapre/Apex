@@ -12,6 +12,7 @@ import {
   ExternalTicketLink,
   GraphObject,
   GraphRelationship,
+  JmlLeaverRun,
   JmlMoverRun,
   ObjectMergeRun,
   NotificationRule,
@@ -64,6 +65,7 @@ export class ApexStore {
   reportDefinitions = new Map<string, ReportDefinition>();
   reportRuns = new Map<string, ReportRun>();
   jmlMoverRuns = new Map<string, JmlMoverRun>();
+  jmlLeaverRuns = new Map<string, JmlLeaverRun>();
   objectMergeRuns = new Map<string, ObjectMergeRun>();
   objectMergeUndo = new Map<
     string,

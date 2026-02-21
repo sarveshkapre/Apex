@@ -1,15 +1,17 @@
 import { AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
+import { LeaverLab } from "@/components/operator/leaver-lab";
 import { MoverLab } from "@/components/operator/mover-lab";
 import { WorkflowStudio } from "@/components/operator/workflow-studio";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { listJmlMoverRuns, listObjectsByType, listWorkflowDefinitions } from "@/lib/apex";
+import { listJmlLeaverRuns, listJmlMoverRuns, listObjectsByType, listWorkflowDefinitions } from "@/lib/apex";
 
 export default async function WorkflowsPage() {
-  const [workflows, people, moverRuns] = await Promise.all([
+  const [workflows, people, moverRuns, leaverRuns] = await Promise.all([
     listWorkflowDefinitions(),
     listObjectsByType("Person"),
-    listJmlMoverRuns()
+    listJmlMoverRuns(),
+    listJmlLeaverRuns()
   ]);
 
   return (
@@ -22,6 +24,7 @@ export default async function WorkflowsPage() {
       <WorkflowStudio initial={workflows} />
 
       <MoverLab people={people} initialRuns={moverRuns} />
+      <LeaverLab people={people} initialRuns={leaverRuns} />
 
       <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
         <CardHeader>

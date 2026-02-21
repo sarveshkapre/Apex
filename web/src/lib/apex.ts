@@ -23,6 +23,8 @@ import {
   GraphRelationship,
   GlobalSearchResponse,
   IntegrationHealth,
+  JmlLeaverExecutionResult,
+  JmlLeaverRun,
   JmlMoverExecutionResult,
   JmlMoverRun,
   KnowledgeArticle,
@@ -617,6 +619,64 @@ export const executeJmlMover = async (payload: {
     throw new Error("Failed to execute mover workflow");
   }
   const json = (await response.json()) as ApiResponse<JmlMoverExecutionResult>;
+  return json.data;
+};
+
+export const listJmlLeaverRuns = async (personId?: string): Promise<JmlLeaverRun[]> => {
+  const query = personId ? `?personId=${encodeURIComponent(personId)}` : "";
+  return safe(() => get<JmlLeaverRun[]>(`/jml/leaver/runs${query}`), []);
+};
+
+export const previewJmlLeaver = async (payload: {
+  personId: string;
+  requesterId: string;
+  effectiveDate?: string;
+  region?: string;
+  legalHold: boolean;
+  vip: boolean;
+  contractorConversion: boolean;
+  deviceRecoveryState: "pending" | "recovered" | "not-recovered";
+}): Promise<JmlLeaverRun> => {
+  const response = await fetch(`${API_BASE}/jml/leaver/preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to generate leaver preview");
+  }
+  const json = (await response.json()) as ApiResponse<JmlLeaverRun>;
+  return json.data;
+};
+
+export const executeJmlLeaver = async (payload: {
+  personId: string;
+  requesterId: string;
+  reason: string;
+  effectiveDate?: string;
+  region?: string;
+  legalHold: boolean;
+  vip: boolean;
+  contractorConversion: boolean;
+  deviceRecoveryState: "pending" | "recovered" | "not-recovered";
+}): Promise<JmlLeaverExecutionResult> => {
+  const response = await fetch(`${API_BASE}/jml/leaver/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error("Failed to execute leaver workflow");
+  }
+  const json = (await response.json()) as ApiResponse<JmlLeaverExecutionResult>;
   return json.data;
 };
 

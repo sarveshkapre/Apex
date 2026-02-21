@@ -601,3 +601,26 @@ export const jmlMoverExecuteSchema = z.object({
   requesterId: z.string().min(1),
   reason: z.string().min(1)
 });
+
+export const jmlLeaverPreviewSchema = z.object({
+  personId: z.string().min(1),
+  effectiveDate: z.string().datetime().optional(),
+  region: z.string().optional(),
+  legalHold: z.boolean().default(false),
+  vip: z.boolean().default(false),
+  contractorConversion: z.boolean().default(false),
+  deviceRecoveryState: z.enum(["pending", "recovered", "not-recovered"]).default("pending"),
+  requesterId: z.string().min(1)
+});
+
+export const jmlLeaverExecuteSchema = z.object({
+  personId: z.string().min(1),
+  effectiveDate: z.string().datetime().optional(),
+  region: z.string().optional(),
+  legalHold: z.boolean().default(false),
+  vip: z.boolean().default(false),
+  contractorConversion: z.boolean().default(false),
+  deviceRecoveryState: z.enum(["pending", "recovered", "not-recovered"]).default("pending"),
+  requesterId: z.string().min(1),
+  reason: z.string().min(1)
+});

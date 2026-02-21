@@ -112,6 +112,7 @@ export type TimelineEventType =
   | "contract.renewal.run"
   | "report.run"
   | "jml.mover.executed"
+  | "jml.leaver.executed"
   | "object.merged"
   | "object.merge.reverted"
   | "external-ticket.linked"
@@ -667,6 +668,38 @@ export interface JmlMoverRun {
   personId: string;
   requesterId: string;
   plan: JmlMoverPlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdAt: string;
+}
+
+export interface JmlLeaverStep {
+  id: string;
+  name: string;
+  riskLevel: RiskLevel;
+  requiresApproval: boolean;
+}
+
+export interface JmlLeaverPlan {
+  personId: string;
+  personName: string;
+  effectiveDate: string;
+  region: string;
+  legalHold: boolean;
+  vip: boolean;
+  riskLevel: RiskLevel;
+  approvalsRequired: ApprovalType[];
+  steps: JmlLeaverStep[];
+}
+
+export interface JmlLeaverRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  personId: string;
+  requesterId: string;
+  plan: JmlLeaverPlan;
   linkedWorkItemId?: string;
   createdTaskIds: string[];
   createdApprovalIds: string[];

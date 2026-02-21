@@ -455,6 +455,52 @@ export interface JmlMoverExecutionResult {
   taskIds: string[];
 }
 
+export interface JmlLeaverStep {
+  id: string;
+  name: string;
+  riskLevel: "low" | "medium" | "high";
+  requiresApproval: boolean;
+}
+
+export interface JmlLeaverPlan {
+  personId: string;
+  personName: string;
+  effectiveDate: string;
+  region: string;
+  legalHold: boolean;
+  vip: boolean;
+  riskLevel: "low" | "medium" | "high";
+  approvalsRequired: string[];
+  steps: JmlLeaverStep[];
+}
+
+export interface JmlLeaverRun {
+  id: string;
+  mode: "preview" | "live";
+  status: "planned" | "executed";
+  personId: string;
+  requesterId: string;
+  plan: JmlLeaverPlan;
+  linkedWorkItemId?: string;
+  createdTaskIds: string[];
+  createdApprovalIds: string[];
+  createdAt: string;
+}
+
+export interface JmlLeaverExecutionResult {
+  run: JmlLeaverRun;
+  workItem: WorkItem;
+  approvalIds: string[];
+  taskIds: string[];
+  updatedObjects: {
+    identities: number;
+    saasAccounts: number;
+    devices: number;
+    ownershipTransfers: number;
+  };
+  followUpIncidentId?: string;
+}
+
 export interface ObjectMergeFieldDecision {
   field: string;
   targetValue: unknown;

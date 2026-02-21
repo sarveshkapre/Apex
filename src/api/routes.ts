@@ -15,6 +15,8 @@ import {
   ApprovalRecord,
   GraphObject,
   GraphRelationship,
+  JmlLeaverPlan,
+  JmlLeaverRun,
   JmlMoverPlan,
   JmlMoverRun,
   ObjectMergeRun,
@@ -72,6 +74,8 @@ import {
   policyCreateSchema,
   jmlMoverPreviewSchema,
   jmlMoverExecuteSchema,
+  jmlLeaverPreviewSchema,
+  jmlLeaverExecuteSchema,
   reportDefinitionCreateSchema,
   reportDefinitionUpdateSchema,
   reportRunCreateSchema,
@@ -936,6 +940,134 @@ export const createRoutes = (store: ApexStore): Router => {
       removeApps,
       riskLevel,
       approvalsRequired
+    };
+  };
+
+  const personReferenceSet = (person: GraphObject): Set<string> => {
+    const refs = new Set<string>([person.id]);
+    const email = String(person.fields.email ?? "").trim().toLowerCase();
+    if (email) {
+      refs.add(email);
+    }
+    const workerId = String(person.fields.worker_id ?? "").trim().toLowerCase();
+    if (workerId) {
+      refs.add(workerId);
+    }
+    return refs;
+  };
+
+  const matchesPersonRef = (value: unknown, refs: Set<string>): boolean => {
+    if (typeof value !== "string") {
+      return false;
+    }
+    return refs.has(value.trim().toLowerCase());
+  };
+
+  const buildJmlLeaverPlan = (input: {
+    personId: string;
+    effectiveDate?: string;
+    region?: string;
+    legalHold: boolean;
+    vip: boolean;
+    contractorConversion: boolean;
+    deviceRecoveryState: "pending" | "recovered" | "not-recovered";
+    requesterId: string;
+  }): JmlLeaverPlan | null => {
+    const person = store.objects.get(input.personId);
+    if (!person || person.type !== "Person") {
+      return null;
+    }
+
+    const personName = String(person.fields.legal_name ?? person.fields.preferred_name ?? person.id);
+    const region = String(
+      input.region ?? person.fields.region ?? person.fields.country ?? person.fields.location ?? "Global"
+    );
+
+    const highRisk = input.vip || input.legalHold || input.deviceRecoveryState === "not-recovered";
+    const riskLevel = highRisk ? "high" : input.contractorConversion ? "medium" : "medium";
+
+    const approvalsRequiredSet = new Set(
+      approvalsForRequest([...store.approvalMatrixRules.values()], "Change", riskLevel, undefined)
+    );
+    approvalsRequiredSet.add("manager");
+    if (input.vip || input.legalHold || input.deviceRecoveryState === "not-recovered") {
+      approvalsRequiredSet.add("security");
+      approvalsRequiredSet.add("it");
+    }
+    if (input.legalHold) {
+      approvalsRequiredSet.add("custom");
+    }
+    if (input.contractorConversion) {
+      approvalsRequiredSet.add("it");
+    }
+
+    const steps: JmlLeaverPlan["steps"] = [
+      {
+        id: "identity-access-step",
+        name: input.legalHold
+          ? "Restrict identity and preserve legal hold controls"
+          : input.contractorConversion
+            ? "Transition identity for contractor continuity"
+            : "Disable identity and revoke active sessions",
+        riskLevel: "high",
+        requiresApproval: input.vip || input.legalHold
+      },
+      {
+        id: "saas-reclaim-step",
+        name: "Deprovision SaaS access and reclaim licenses",
+        riskLevel: "medium",
+        requiresApproval: false
+      },
+      {
+        id: "ownership-transfer-step",
+        name: "Transfer owned resources and delegated responsibilities",
+        riskLevel: "medium",
+        requiresApproval: false
+      },
+      {
+        id: "asset-recovery-step",
+        name: "Start asset recovery workflow with reminders and escalation",
+        riskLevel: "low",
+        requiresApproval: false
+      }
+    ];
+
+    if (input.deviceRecoveryState === "not-recovered") {
+      steps.push({
+        id: "asset-containment-step",
+        name: "Contain unrecovered assets (lock or wipe) with approval gate",
+        riskLevel: "high",
+        requiresApproval: true
+      });
+    }
+
+    const regionCode = region.trim().toLowerCase();
+    if (["de", "fr", "uk", "eu"].some((entry) => regionCode.includes(entry))) {
+      steps.push({
+        id: "regional-compliance-step",
+        name: "Run regional offboarding compliance checks",
+        riskLevel: "medium",
+        requiresApproval: false
+      });
+    }
+
+    steps.push({
+      id: "evidence-closeout-step",
+      name: "Generate closure evidence package and confirmations",
+      riskLevel: "low",
+      requiresApproval: false
+    });
+
+    return {
+      personId: person.id,
+      personName,
+      effectiveDate: input.effectiveDate ?? nowIso(),
+      region,
+      legalHold: input.legalHold,
+      vip: input.vip,
+      riskLevel,
+      approvalsRequired: [...approvalsRequiredSet],
+      steps
     };
   };
 
@@ -4167,6 +4299,381 @@ export const createRoutes = (store: ApexStore): Router => {
         workItem,
         approvalIds: createdApprovalIds,
         taskIds: createdTaskIds
+      }
+    });
+  });
+
+  router.get("/jml/leaver/runs", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const personId = req.query.personId ? String(req.query.personId) : undefined;
+    const data = [...store.jmlLeaverRuns.values()]
+      .filter((run) => (personId ? run.personId === personId : true))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    res.json({ data });
+  });
+
+  router.post("/jml/leaver/preview", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = jmlLeaverPreviewSchema.parse(req.body);
+    const plan = buildJmlLeaverPlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Person not found for leaver plan" });
+      return;
+    }
+
+    const run: JmlLeaverRun = {
+      id: store.createId(),
+      mode: "preview",
+      status: "planned",
+      personId: plan.personId,
+      requesterId: parsed.requesterId,
+      plan,
+      createdTaskIds: [],
+      createdApprovalIds: [],
+      createdAt: nowIso()
+    };
+    store.jmlLeaverRuns.set(run.id, run);
+    res.status(201).json({ data: run });
+  });
+
+  router.post("/jml/leaver/execute", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = jmlLeaverExecuteSchema.parse(req.body);
+    const plan = buildJmlLeaverPlan(parsed);
+    if (!plan) {
+      res.status(404).json({ error: "Person not found for leaver execution" });
+      return;
+    }
+
+    const person = store.objects.get(plan.personId);
+    if (!person || person.type !== "Person") {
+      res.status(404).json({ error: "Person not found for leaver execution" });
+      return;
+    }
+
+    const managerApproverId =
+      typeof person.fields.manager === "string" && person.fields.manager.trim().length > 0
+        ? person.fields.manager
+        : "manager-approver";
+    const approverByType: Record<string, string> = {
+      manager: managerApproverId,
+      "app-owner": "app-owner-approver",
+      security: "security-approver",
+      finance: "finance-approver",
+      it: "it-approver",
+      custom: "legal-approver"
+    };
+
+    for (const type of plan.approvalsRequired) {
+      const approverId = approverByType[type] ?? `${type}-approver`;
+      const sod = validateSod([...store.sodRules.values()], "Change", parsed.requesterId, approverId);
+      if (!sod.ok) {
+        res.status(409).json({ error: sod.reason ?? "Separation-of-duties validation failed" });
+        return;
+      }
+    }
+
+    const workItem: WorkItem = {
+      id: store.createId(),
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      type: "Change",
+      status: "Submitted",
+      priority: plan.riskLevel === "high" ? "P1" : "P2",
+      title: `JML leaver change: ${plan.personName}`,
+      description: parsed.reason,
+      requesterId: parsed.requesterId,
+      assignmentGroup: "Offboarding Operations",
+      linkedObjectIds: [person.id],
+      tags: [
+        "jml",
+        "leaver",
+        "offboarding",
+        parsed.legalHold ? "legal-hold" : "standard",
+        parsed.vip ? "vip" : "non-vip"
+      ],
+      comments: [
+        {
+          id: store.createId(),
+          authorId: actor.id,
+          body: `Leaver execution requested for ${plan.personName} effective ${plan.effectiveDate}.`,
+          mentions: [],
+          createdAt: nowIso()
+        }
+      ],
+      attachments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.workItems.set(workItem.id, workItem);
+
+    const createdApprovalIds = plan.approvalsRequired.map((type) => {
+      const approval = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        workItemId: workItem.id,
+        type,
+        approverId: approverByType[type] ?? `${type}-approver`,
+        decision: "pending" as const,
+        createdAt: nowIso()
+      };
+      store.approvals.set(approval.id, approval);
+      return approval.id;
+    });
+
+    const refs = personReferenceSet(person);
+    const relationshipDeviceIds = new Set(
+      [...store.relationships.values()]
+        .filter((relationship) => relationship.type === "assigned_to" && relationship.toObjectId === person.id)
+        .map((relationship) => relationship.fromObjectId)
+    );
+
+    const identityTargets = [...store.objects.values()].filter((object) => {
+      if (object.type !== "Identity") {
+        return false;
+      }
+      return (
+        matchesPersonRef(object.fields.person_id, refs) ||
+        matchesPersonRef(object.fields.person, refs) ||
+        matchesPersonRef(object.fields.personId, refs) ||
+        matchesPersonRef(object.fields.email, refs) ||
+        matchesPersonRef(object.fields.username, refs)
+      );
+    });
+    const saasTargets = [...store.objects.values()].filter((object) => {
+      if (object.type !== "SaaSAccount") {
+        return false;
+      }
+      return (
+        matchesPersonRef(object.fields.person_id, refs) ||
+        matchesPersonRef(object.fields.person, refs) ||
+        matchesPersonRef(object.fields.email, refs)
+      );
+    });
+    const deviceTargets = [...store.objects.values()].filter((object) => {
+      if (object.type !== "Device") {
+        return false;
+      }
+      return (
+        relationshipDeviceIds.has(object.id) ||
+        matchesPersonRef(object.fields.assigned_to_person_id, refs) ||
+        matchesPersonRef(object.fields.assigned_to, refs) ||
+        matchesPersonRef(object.fields.checked_out_by, refs)
+      );
+    });
+    const ownedTargets = [...store.objects.values()].filter((object) => {
+      if (object.id === person.id) {
+        return false;
+      }
+      return (
+        matchesPersonRef(object.fields.owner, refs) ||
+        matchesPersonRef(object.fields.owned_by, refs) ||
+        matchesPersonRef(object.fields.owner_email, refs)
+      );
+    });
+
+    const reclaimSeatForApp = (appName: string) => {
+      const app = appName.trim().toLowerCase();
+      if (!app) {
+        return;
+      }
+      const matchingLicenses = [...store.objects.values()].filter((object) => {
+        if (object.type !== "License") {
+          return false;
+        }
+        const licenseApp = String(object.fields.app ?? object.fields.vendor ?? "").trim().toLowerCase();
+        return licenseApp === app;
+      });
+      if (matchingLicenses.length === 0) {
+        return;
+      }
+
+      for (const license of matchingLicenses) {
+        const assignedSeats = Number(license.fields.assigned_seats ?? 0);
+        const availableSeats = Number(license.fields.available_seats ?? 0);
+        license.fields = {
+          ...license.fields,
+          assigned_seats: Number.isFinite(assignedSeats) ? Math.max(0, assignedSeats - 1) : 0,
+          available_seats: Number.isFinite(availableSeats) ? availableSeats + 1 : 1
+        };
+        license.updatedAt = nowIso();
+        store.objects.set(license.id, license);
+      }
+    };
+
+    for (const identity of identityTargets) {
+      identity.fields = {
+        ...identity.fields,
+        status: parsed.contractorConversion ? "active" : "suspended",
+        deprovisioned_at: parsed.contractorConversion ? undefined : plan.effectiveDate,
+        legal_hold: parsed.legalHold || undefined,
+        conversion_mode: parsed.contractorConversion || undefined
+      };
+      identity.updatedAt = nowIso();
+      store.objects.set(identity.id, identity);
+    }
+
+    for (const account of saasTargets) {
+      const appName = String(account.fields.app ?? "");
+      account.fields = {
+        ...account.fields,
+        status: parsed.contractorConversion ? "conversion-review" : parsed.legalHold ? "suspended" : "deprovisioned",
+        deprovisioned_at: parsed.contractorConversion ? undefined : plan.effectiveDate,
+        legal_hold: parsed.legalHold || undefined
+      };
+      account.updatedAt = nowIso();
+      store.objects.set(account.id, account);
+      if (!parsed.contractorConversion && !parsed.legalHold) {
+        reclaimSeatForApp(appName);
+      }
+    }
+
+    for (const object of ownedTargets) {
+      object.fields = {
+        ...object.fields,
+        owner: managerApproverId,
+        transferred_from: person.id,
+        transfer_reason: "jml-leaver"
+      };
+      object.updatedAt = nowIso();
+      store.objects.set(object.id, object);
+    }
+
+    for (const device of deviceTargets) {
+      device.fields = {
+        ...device.fields,
+        custody_status: parsed.deviceRecoveryState === "recovered" ? "recovered" : "return_required",
+        offboarding_return_due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        lost_stolen_state: parsed.deviceRecoveryState === "not-recovered" ? "lost" : device.fields.lost_stolen_state,
+        containment_action:
+          parsed.deviceRecoveryState === "not-recovered" ? "pending-approval" : device.fields.containment_action
+      };
+      device.updatedAt = nowIso();
+      store.objects.set(device.id, device);
+    }
+
+    const assignmentGroupByStepId: Record<string, string> = {
+      "identity-access-step": "Identity Operations",
+      "saas-reclaim-step": "Access Operations",
+      "ownership-transfer-step": "Platform Operations",
+      "asset-recovery-step": "Endpoint Operations",
+      "asset-containment-step": "Security Operations",
+      "regional-compliance-step": "IT Compliance",
+      "evidence-closeout-step": "IT Audit"
+    };
+
+    const createdTaskIds: string[] = [];
+    for (const step of plan.steps) {
+      const task: WorkItem = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        type: "Task",
+        status: "Submitted",
+        priority: step.riskLevel === "high" ? "P1" : step.riskLevel === "medium" ? "P2" : "P3",
+        title: `Leaver task: ${step.name}`,
+        description: `Execute leaver step ${step.id}.`,
+        requesterId: parsed.requesterId,
+        assignmentGroup: assignmentGroupByStepId[step.id] ?? "Offboarding Operations",
+        linkedObjectIds: [person.id, workItem.id, ...deviceTargets.map((device) => device.id)],
+        tags: ["jml", "leaver", "task", step.id],
+        comments: [],
+        attachments: [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.workItems.set(task.id, task);
+      createdTaskIds.push(task.id);
+    }
+
+    let followUpIncidentId: string | undefined;
+    if (parsed.deviceRecoveryState === "not-recovered") {
+      const incident: WorkItem = {
+        id: store.createId(),
+        tenantId: workItem.tenantId,
+        workspaceId: workItem.workspaceId,
+        type: "Incident",
+        status: "Submitted",
+        priority: "P1",
+        title: `Unrecovered offboarding asset: ${plan.personName}`,
+        description: "Leaver assets were not recovered at termination and require containment workflow.",
+        requesterId: parsed.requesterId,
+        assignmentGroup: "Security Operations",
+        linkedObjectIds: [person.id, workItem.id, ...deviceTargets.map((device) => device.id)],
+        tags: ["jml", "leaver", "asset-recovery", "security"],
+        comments: [],
+        attachments: [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.workItems.set(incident.id, incident);
+      followUpIncidentId = incident.id;
+    }
+
+    person.fields = {
+      ...person.fields,
+      status: parsed.contractorConversion ? "leave" : "terminated",
+      end_date: plan.effectiveDate,
+      employment_type: parsed.contractorConversion ? "contractor" : person.fields.employment_type,
+      legal_hold: parsed.legalHold || undefined,
+      vip: parsed.vip || undefined,
+      offboarding_region: plan.region,
+      conversion_mode: parsed.contractorConversion || undefined
+    };
+    person.updatedAt = nowIso();
+    store.objects.set(person.id, person);
+
+    const run: JmlLeaverRun = {
+      id: store.createId(),
+      mode: "live",
+      status: "executed",
+      personId: person.id,
+      requesterId: parsed.requesterId,
+      plan,
+      linkedWorkItemId: workItem.id,
+      createdTaskIds,
+      createdApprovalIds,
+      createdAt: nowIso()
+    };
+    store.jmlLeaverRuns.set(run.id, run);
+
+    store.pushTimeline({
+      tenantId: person.tenantId,
+      workspaceId: person.workspaceId,
+      entityType: "workflow",
+      entityId: run.id,
+      eventType: "jml.leaver.executed",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        personId: person.id,
+        workItemId: workItem.id,
+        riskLevel: plan.riskLevel,
+        approvals: createdApprovalIds.length,
+        tasks: createdTaskIds.length,
+        legalHold: parsed.legalHold,
+        vip: parsed.vip,
+        deviceRecoveryState: parsed.deviceRecoveryState
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        run,
+        workItem,
+        approvalIds: createdApprovalIds,
+        taskIds: createdTaskIds,
+        updatedObjects: {
+          identities: identityTargets.length,
+          saasAccounts: saasTargets.length,
+          devices: deviceTargets.length,
+          ownershipTransfers: ownedTargets.length
+        },
+        followUpIncidentId
       }
     });
   });

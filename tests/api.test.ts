@@ -1309,4 +1309,169 @@ describe("Apex API", () => {
     expect(runs.status).toBe(200);
     expect(runs.body.data.length).toBeGreaterThan(0);
   });
+
+  it("generates JML leaver preview including legal hold and unrecovered asset containment", async () => {
+    const { app } = createApp();
+
+    const people = await request(app).get("/v1/objects").query({ type: "Person" });
+    expect(people.status).toBe(200);
+    const personId = people.body.data[0].id as string;
+
+    const preview = await request(app)
+      .post("/v1/jml/leaver/preview")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        personId,
+        requesterId: "person-1",
+        effectiveDate: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        region: "DE",
+        legalHold: true,
+        vip: true,
+        contractorConversion: false,
+        deviceRecoveryState: "not-recovered"
+      });
+
+    expect(preview.status).toBe(201);
+    expect(preview.body.data.plan.legalHold).toBe(true);
+    expect(preview.body.data.plan.vip).toBe(true);
+    expect(preview.body.data.plan.approvalsRequired).toContain("security");
+    expect(preview.body.data.plan.steps.some((step: { id: string }) => step.id === "asset-containment-step")).toBe(true);
+    expect(preview.body.data.plan.steps.some((step: { id: string }) => step.id === "regional-compliance-step")).toBe(true);
+  });
+
+  it("executes JML leaver flow and updates identities, SaaS, ownership, and devices", async () => {
+    const { app } = createApp();
+
+    const people = await request(app).get("/v1/objects").query({ type: "Person" });
+    expect(people.status).toBe(200);
+    const person = people.body.data[0];
+    const personId = person.id as string;
+    const email = String(person.fields.email ?? "");
+
+    const identity = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Identity",
+        fields: {
+          person_id: personId,
+          email,
+          status: "active"
+        }
+      });
+    expect(identity.status).toBe(201);
+
+    const saasAccount = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "SaaSAccount",
+        fields: {
+          person: personId,
+          app: "Figma",
+          status: "active"
+        }
+      });
+    expect(saasAccount.status).toBe(201);
+
+    const license = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "License",
+        fields: {
+          app: "Figma",
+          assigned_seats: 5,
+          available_seats: 2
+        }
+      });
+    expect(license.status).toBe(201);
+
+    const ownedResource = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "CloudResource",
+        fields: {
+          name: "prod-app-node-1",
+          owner: personId
+        }
+      });
+    expect(ownedResource.status).toBe(201);
+
+    const device = await request(app)
+      .post("/v1/objects")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "Device",
+        fields: {
+          serial_number: "SN-LEAVER-1",
+          assigned_to_person_id: personId
+        }
+      });
+    expect(device.status).toBe(201);
+
+    const executed = await request(app)
+      .post("/v1/jml/leaver/execute")
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        personId,
+        requesterId: "person-1",
+        effectiveDate: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        region: "US",
+        legalHold: false,
+        vip: true,
+        contractorConversion: false,
+        deviceRecoveryState: "not-recovered",
+        reason: "Termination processed"
+      });
+
+    expect(executed.status).toBe(201);
+    expect(executed.body.data.workItem.type).toBe("Change");
+    expect(executed.body.data.approvalIds.length).toBeGreaterThan(0);
+    expect(executed.body.data.taskIds.length).toBeGreaterThan(0);
+    expect(executed.body.data.updatedObjects.identities).toBeGreaterThan(0);
+    expect(executed.body.data.updatedObjects.saasAccounts).toBeGreaterThan(0);
+    expect(executed.body.data.updatedObjects.devices).toBeGreaterThan(0);
+    expect(executed.body.data.updatedObjects.ownershipTransfers).toBeGreaterThan(0);
+    expect(executed.body.data.followUpIncidentId).toBeDefined();
+
+    const personAfter = await request(app).get(`/v1/objects/${personId}`);
+    expect(personAfter.status).toBe(200);
+    expect(personAfter.body.data.fields.status).toBe("terminated");
+
+    const identityAfter = await request(app).get(`/v1/objects/${identity.body.data.id as string}`);
+    expect(identityAfter.status).toBe(200);
+    expect(identityAfter.body.data.fields.status).toBe("suspended");
+
+    const accountAfter = await request(app).get(`/v1/objects/${saasAccount.body.data.id as string}`);
+    expect(accountAfter.status).toBe(200);
+    expect(accountAfter.body.data.fields.status).toBe("deprovisioned");
+
+    const licenseAfter = await request(app).get(`/v1/objects/${license.body.data.id as string}`);
+    expect(licenseAfter.status).toBe(200);
+    expect(licenseAfter.body.data.fields.assigned_seats).toBe(4);
+    expect(licenseAfter.body.data.fields.available_seats).toBe(3);
+
+    const runs = await request(app).get("/v1/jml/leaver/runs").query({ personId });
+    expect(runs.status).toBe(200);
+    expect(runs.body.data.length).toBeGreaterThan(0);
+  });
 });
