@@ -1,5 +1,6 @@
 import { GitMerge, Link2, Search } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
+import { GraphActionsLab } from "@/components/operator/graph-actions-lab";
 import { StatusBadge } from "@/components/app/status-badge";
 import { ObjectMergeLab } from "@/components/operator/object-merge-lab";
 import { ProvenanceOverrideLab } from "@/components/operator/provenance-override-lab";
@@ -7,10 +8,16 @@ import { ViewManager } from "@/components/operator/view-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { listObjectMergeRuns, listObjects, listSavedViews } from "@/lib/apex";
+import { listObjectMergeRuns, listObjects, listRelationships, listSavedViews, listWorkflowDefinitions } from "@/lib/apex";
 
 export default async function GraphPage() {
-  const [objects, views, mergeRuns] = await Promise.all([listObjects(), listSavedViews(), listObjectMergeRuns()]);
+  const [objects, views, mergeRuns, workflows, relationships] = await Promise.all([
+    listObjects(),
+    listSavedViews(),
+    listObjectMergeRuns(),
+    listWorkflowDefinitions(),
+    listRelationships()
+  ]);
 
   return (
     <div className="space-y-4">
@@ -29,6 +36,8 @@ export default async function GraphPage() {
       </Card>
 
       <ViewManager initial={views} />
+
+      <GraphActionsLab initialObjects={objects} initialRelationships={relationships} workflows={workflows} />
 
       <ObjectMergeLab objects={objects} initialRuns={mergeRuns} />
       <ProvenanceOverrideLab initialObjects={objects} />

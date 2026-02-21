@@ -43,6 +43,21 @@ export const relationshipCreateSchema = z.object({
   toObjectId: z.string().min(1)
 });
 
+export const relationshipUnlinkSchema = z.object({
+  reason: z.string().min(1)
+});
+
+export const objectChildCreateSchema = z.object({
+  childType: z.enum(coreObjectTypes),
+  relationshipType: z.enum(relationshipTypes).default("contains"),
+  fields: z.record(z.string(), z.unknown()).default({})
+});
+
+export const objectWorkflowStartSchema = z.object({
+  definitionId: z.string().min(1),
+  inputs: z.record(z.string(), z.unknown()).default({})
+});
+
 export const signalIngestSchema = z.object({
   tenantId: z.string().min(1),
   workspaceId: z.string().min(1),

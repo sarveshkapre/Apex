@@ -15,6 +15,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Duplicate merge preview/execute/revert workflow with reversible window
 - Signal ingestion + reconciliation candidate matching + canonical merge
 - Manual field override controls with reason + optional expiry stored in provenance
+- Graph object actions for link/unlink, child object creation, and workflow start from object context
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
 - Approval timeout lifecycle with expiry and escalation to fallback approver
@@ -46,6 +47,7 @@ This repository now ships a full-stack implementation baseline for Apex:
   - JML mover planning and execution (`/v1/jml/mover/preview`, `/v1/jml/mover/execute`, `/v1/jml/mover/runs`)
   - duplicate merge operations (`/v1/object-merges/preview`, `/v1/object-merges/execute`, `/v1/object-merges/:id/revert`, `/v1/object-merges/runs`)
   - manual provenance overrides (`/v1/objects/:id/manual-override`)
+  - graph object actions (`/v1/relationships/:id/unlink`, `/v1/objects/:id/children`, `/v1/objects/:id/workflows/start`)
   - connector CRUD + run history (`/v1/admin/connectors`, `/v1/admin/connectors/:id/run`)
   - notification rules (`/v1/admin/notifications`)
   - config versioning (`/v1/admin/config-versions`, publish/rollback state transitions)
@@ -93,6 +95,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Workflow surface includes JML Mover planner with entitlement diff preview and execute path
 - Asset Graph includes duplicate merge workspace with impact preview and reversible merge runs
 - Asset Graph includes provenance override workspace for controlled field-level manual overrides
+- Asset Graph includes object action workspace for relationship management and object-context workflow starts
 
 ## Run
 
@@ -126,7 +129,8 @@ npm --prefix web run build
 - `POST /v1/objects`, `GET /v1/objects`, `PATCH /v1/objects/:id`
 - `POST /v1/objects/:id/manual-override`
 - `GET /v1/object-merges/runs`, `POST /v1/object-merges/preview`, `POST /v1/object-merges/execute`, `POST /v1/object-merges/:id/revert`
-- `POST /v1/relationships`, `GET /v1/relationships`
+- `POST /v1/relationships`, `GET /v1/relationships`, `POST /v1/relationships/:id/unlink`
+- `POST /v1/objects/:id/children`, `POST /v1/objects/:id/workflows/start`
 - `GET /v1/timeline/:entityId`
 - `POST /v1/signals/preview`, `POST /v1/signals/ingest`
 - `GET /v1/quality`

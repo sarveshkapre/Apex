@@ -19,6 +19,7 @@ import {
   ExternalTicketComment,
   FieldRestriction,
   GraphObject,
+  GraphRelationship,
   IntegrationHealth,
   JmlMoverExecutionResult,
   JmlMoverRun,
@@ -39,11 +40,13 @@ import {
   SavedView,
   SodRule,
   SlaBreachesResponse,
+  RelationshipType,
   WorkflowSimulationResult,
   WorkItem,
   WorkItemBulkAction,
   WorkItemBulkResult,
-  WorkflowDefinition
+  WorkflowDefinition,
+  WorkflowRun
 } from "@/lib/types";
 import {
   mockAiInsights,
@@ -108,6 +111,111 @@ export const listObjectsByType = async (type: string): Promise<GraphObject[]> =>
     () => get<GraphObject[]>(`/objects?type=${encodeURIComponent(type)}`),
     mockObjects.filter((item) => item.type === type)
   );
+};
+
+export const listRelationships = async (objectId?: string): Promise<GraphRelationship[]> => {
+  const query = objectId ? `?objectId=${encodeURIComponent(objectId)}` : "";
+  return safe(() => get<GraphRelationship[]>(`/relationships${query}`), []);
+};
+
+export const createRelationship = async (payload: {
+  fromObjectId: string;
+  toObjectId: string;
+  type: RelationshipType;
+}): Promise<GraphRelationship> => {
+  const response = await fetch(`${API_BASE}/relationships`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      ...payload
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to create relationship");
+  }
+  const json = (await response.json()) as ApiResponse<GraphRelationship>;
+  return json.data;
+};
+
+export const unlinkRelationship = async (relationshipId: string, reason: string): Promise<GraphRelationship> => {
+  const response = await fetch(`${API_BASE}/relationships/${relationshipId}/unlink`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({ reason })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to unlink relationship");
+  }
+  const json = (await response.json()) as ApiResponse<GraphRelationship>;
+  return json.data;
+};
+
+export const createChildObject = async (payload: {
+  parentObjectId: string;
+  childType: string;
+  relationshipType: RelationshipType;
+  fields: Record<string, unknown>;
+}): Promise<{
+  parentObjectId: string;
+  childObject: GraphObject;
+  relationship: GraphRelationship;
+}> => {
+  const response = await fetch(`${API_BASE}/objects/${payload.parentObjectId}/children`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-asset-manager",
+      "x-actor-role": "asset-manager"
+    },
+    body: JSON.stringify({
+      childType: payload.childType,
+      relationshipType: payload.relationshipType,
+      fields: payload.fields
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to create child object");
+  }
+  const json = (await response.json()) as ApiResponse<{
+    parentObjectId: string;
+    childObject: GraphObject;
+    relationship: GraphRelationship;
+  }>;
+  return json.data;
+};
+
+export const startObjectWorkflow = async (payload: {
+  objectId: string;
+  definitionId: string;
+  inputs: Record<string, unknown>;
+}): Promise<{ run: WorkflowRun; objectId: string }> => {
+  const response = await fetch(`${API_BASE}/objects/${payload.objectId}/workflows/start`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "ui-operator",
+      "x-actor-role": "it-agent"
+    },
+    body: JSON.stringify({
+      definitionId: payload.definitionId,
+      inputs: payload.inputs
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to start workflow from object context");
+  }
+  const json = (await response.json()) as ApiResponse<{ run: WorkflowRun; objectId: string }>;
+  return json.data;
 };
 
 export const applyObjectManualOverride = async (payload: {

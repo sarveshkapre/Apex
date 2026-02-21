@@ -58,9 +58,11 @@ import {
   externalTicketLinkCreateSchema,
   fieldRestrictionCreateSchema,
   notificationRuleCreateSchema,
+  objectChildCreateSchema,
   objectMergeExecuteSchema,
   objectMergePreviewSchema,
   objectManualOverrideSchema,
+  objectWorkflowStartSchema,
   objectCreateSchema,
   objectUpdateSchema,
   policyExceptionActionSchema,
@@ -71,6 +73,7 @@ import {
   reportDefinitionUpdateSchema,
   reportRunCreateSchema,
   relationshipCreateSchema,
+  relationshipUnlinkSchema,
   runWorkflowSchema,
   savedViewCreateSchema,
   contractRenewalOverviewSchema,
@@ -1281,6 +1284,112 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data: object });
   });
 
+  router.post("/objects/:id/children", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:create"));
+    const parsed = objectChildCreateSchema.parse(req.body);
+    const parent = store.objects.get(req.params.id);
+    if (!parent) {
+      res.status(404).json({ error: "Parent object not found" });
+      return;
+    }
+
+    const child: GraphObject = {
+      id: store.createId(),
+      tenantId: parent.tenantId,
+      workspaceId: parent.workspaceId,
+      type: parsed.childType,
+      fields: parsed.fields,
+      provenance: {},
+      quality: {
+        freshness: 0.8,
+        completeness: 0.6,
+        consistency: 0.9,
+        coverage: 0.6
+      },
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.objects.set(child.id, child);
+
+    const relationship: GraphRelationship = {
+      id: store.createId(),
+      tenantId: parent.tenantId,
+      workspaceId: parent.workspaceId,
+      type: parsed.relationshipType,
+      fromObjectId: parent.id,
+      toObjectId: child.id,
+      createdAt: nowIso(),
+      createdBy: actor.id
+    };
+    store.relationships.set(relationship.id, relationship);
+
+    store.pushTimeline({
+      tenantId: child.tenantId,
+      workspaceId: child.workspaceId,
+      entityType: "object",
+      entityId: child.id,
+      eventType: "object.created",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        parentObjectId: parent.id,
+        relationshipType: relationship.type
+      }
+    });
+    store.pushTimeline({
+      tenantId: relationship.tenantId,
+      workspaceId: relationship.workspaceId,
+      entityType: "relationship",
+      entityId: relationship.id,
+      eventType: "relationship.created",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        type: relationship.type,
+        fromObjectId: relationship.fromObjectId,
+        toObjectId: relationship.toObjectId
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        parentObjectId: parent.id,
+        childObject: child,
+        relationship
+      }
+    });
+  });
+
+  router.post("/objects/:id/workflows/start", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = objectWorkflowStartSchema.parse(req.body);
+    const object = store.objects.get(req.params.id);
+    if (!object) {
+      res.status(404).json({ error: "Object not found" });
+      return;
+    }
+
+    const run = workflows.startRun(
+      parsed.definitionId,
+      object.tenantId,
+      object.workspaceId,
+      {
+        ...parsed.inputs,
+        objectId: object.id,
+        objectType: object.type
+      },
+      actor
+    );
+    res.status(201).json({
+      data: {
+        run,
+        objectId: object.id
+      }
+    });
+  });
+
   router.get("/object-merges/runs", (req, res) => {
     const objectId = req.query.objectId ? String(req.query.objectId) : undefined;
     const data = [...store.objectMergeRuns.values()]
@@ -1537,6 +1646,29 @@ export const createRoutes = (store: ApexStore): Router => {
     permission(can(actor.role, "object:update"));
 
     const parsed = relationshipCreateSchema.parse(req.body);
+    if (parsed.fromObjectId === parsed.toObjectId) {
+      res.status(400).json({ error: "Cannot link an object to itself" });
+      return;
+    }
+
+    const fromObject = store.objects.get(parsed.fromObjectId);
+    const toObject = store.objects.get(parsed.toObjectId);
+    if (!fromObject || !toObject) {
+      res.status(404).json({ error: "One or both objects were not found" });
+      return;
+    }
+
+    const duplicate = [...store.relationships.values()].find(
+      (relationship) =>
+        relationship.type === parsed.type &&
+        relationship.fromObjectId === parsed.fromObjectId &&
+        relationship.toObjectId === parsed.toObjectId
+    );
+    if (duplicate) {
+      res.status(409).json({ error: "Relationship already exists", data: duplicate });
+      return;
+    }
+
     const rel: GraphRelationship = {
       id: store.createId(),
       tenantId: parsed.tenantId,
@@ -1563,8 +1695,51 @@ export const createRoutes = (store: ApexStore): Router => {
     res.status(201).json({ data: rel });
   });
 
-  router.get("/relationships", (_req, res) => {
-    res.json({ data: [...store.relationships.values()] });
+  router.get("/relationships", (req, res) => {
+    const objectId = req.query.objectId ? String(req.query.objectId) : undefined;
+    const type = req.query.type ? String(req.query.type) : undefined;
+    const data = [...store.relationships.values()].filter(
+      (relationship) =>
+        (objectId
+          ? relationship.fromObjectId === objectId || relationship.toObjectId === objectId
+          : true) && (type ? relationship.type === type : true)
+    );
+    res.json({ data });
+  });
+
+  router.post("/relationships/:id/unlink", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:update"));
+    const parsed = relationshipUnlinkSchema.parse(req.body);
+    const relationship = store.relationships.get(req.params.id);
+    if (!relationship) {
+      res.status(404).json({ error: "Relationship not found" });
+      return;
+    }
+
+    if (relationship.type === "evidence_for" && actor.role !== "it-admin" && actor.role !== "security-analyst") {
+      res.status(403).json({ error: "Evidence relationships can only be unlinked by admin or security roles" });
+      return;
+    }
+
+    store.relationships.delete(relationship.id);
+    store.pushTimeline({
+      tenantId: relationship.tenantId,
+      workspaceId: relationship.workspaceId,
+      entityType: "relationship",
+      entityId: relationship.id,
+      eventType: "relationship.deleted",
+      actor: actor.id,
+      createdAt: nowIso(),
+      reason: parsed.reason,
+      payload: {
+        type: relationship.type,
+        fromObjectId: relationship.fromObjectId,
+        toObjectId: relationship.toObjectId
+      }
+    });
+
+    res.json({ data: relationship });
   });
 
   router.get("/timeline/:entityId", (req, res) => {

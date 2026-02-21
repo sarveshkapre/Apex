@@ -198,6 +198,102 @@ describe("Apex API", () => {
     expect(sourceAfterRevert.status).toBe(200);
   });
 
+  it("supports graph object actions: link guardrails, unlink, child creation, and workflow start", async () => {
+    const { app } = createApp();
+
+    const objects = await request(app).get("/v1/objects");
+    expect(objects.status).toBe(200);
+    const device = objects.body.data.find((item: { type: string }) => item.type === "Device");
+    const person = objects.body.data.find((item: { type: string }) => item.type === "Person");
+    expect(device).toBeTruthy();
+    expect(person).toBeTruthy();
+    const deviceId = (device as { id: string }).id;
+    const personId = (person as { id: string }).id;
+
+    const invalidSelfLink = await request(app)
+      .post("/v1/relationships")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "assigned_to",
+        fromObjectId: deviceId,
+        toObjectId: deviceId
+      });
+    expect(invalidSelfLink.status).toBe(400);
+
+    const linked = await request(app)
+      .post("/v1/relationships")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "assigned_to",
+        fromObjectId: deviceId,
+        toObjectId: personId
+      });
+    expect(linked.status).toBe(201);
+
+    const duplicate = await request(app)
+      .post("/v1/relationships")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: "assigned_to",
+        fromObjectId: deviceId,
+        toObjectId: personId
+      });
+    expect(duplicate.status).toBe(409);
+
+    const unlinked = await request(app)
+      .post(`/v1/relationships/${linked.body.data.id}/unlink`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({ reason: "Incorrect link" });
+    expect(unlinked.status).toBe(200);
+
+    const relationshipsAfter = await request(app).get("/v1/relationships").query({ objectId: deviceId });
+    expect(relationshipsAfter.status).toBe(200);
+    expect(
+      relationshipsAfter.body.data.some((item: { id: string }) => item.id === linked.body.data.id)
+    ).toBe(false);
+
+    const child = await request(app)
+      .post(`/v1/objects/${deviceId}/children`)
+      .set("x-actor-id", "asset-1")
+      .set("x-actor-role", "asset-manager")
+      .send({
+        childType: "Accessory",
+        relationshipType: "contains",
+        fields: {
+          type: "dock",
+          serial_number: "ACC-DOCK-001"
+        }
+      });
+    expect(child.status).toBe(201);
+    expect(child.body.data.childObject.type).toBe("Accessory");
+    expect(child.body.data.relationship.fromObjectId).toBe(deviceId);
+
+    const started = await request(app)
+      .post(`/v1/objects/${deviceId}/workflows/start`)
+      .set("x-actor-id", "agent-1")
+      .set("x-actor-role", "it-agent")
+      .send({
+        definitionId: "wf-jml-joiner-v1",
+        inputs: {
+          trigger: "manual-graph"
+        }
+      });
+    expect(started.status).toBe(201);
+    expect(started.body.data.objectId).toBe(deviceId);
+    expect(started.body.data.run.inputs.objectId).toBe(deviceId);
+    expect(started.body.data.run.inputs.objectType).toBe("Device");
+  });
+
   it("adds comment and attachment to a work item", async () => {
     const { app } = createApp();
 

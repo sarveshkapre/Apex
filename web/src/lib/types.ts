@@ -34,6 +34,31 @@ export interface GraphObject {
   updatedAt: string;
 }
 
+export type RelationshipType =
+  | "assigned_to"
+  | "owned_by"
+  | "located_in"
+  | "member_of"
+  | "has_identity"
+  | "has_account"
+  | "consumes"
+  | "installed_on"
+  | "contains"
+  | "depends_on"
+  | "linked_to"
+  | "evidence_for";
+
+export interface GraphRelationship {
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  type: RelationshipType;
+  fromObjectId: string;
+  toObjectId: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface WorkItem {
   id: string;
   type: string;
@@ -99,6 +124,17 @@ export interface WorkflowDefinition {
     type: string;
     riskLevel: "low" | "medium" | "high";
   }>;
+}
+
+export interface WorkflowRun {
+  id: string;
+  definitionId: string;
+  status: "pending" | "running" | "waiting-approval" | "completed" | "failed";
+  currentStepIndex: number;
+  inputs: Record<string, unknown>;
+  linkedWorkItemId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface QualityDashboard {
