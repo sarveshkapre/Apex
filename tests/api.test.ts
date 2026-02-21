@@ -799,6 +799,58 @@ describe("Apex API", () => {
     expect(workItem.status).toBe("Waiting");
   });
 
+  it("accepts requester info response and reopens info-requested approvals", async () => {
+    const { app } = createApp();
+
+    const submitted = await request(app)
+      .post("/v1/catalog/submit")
+      .set("x-actor-id", "requester-2")
+      .set("x-actor-role", "end-user")
+      .send({
+        catalogItemId: "cat-admin",
+        requesterId: "person-1",
+        title: "Need temporary admin privileges for responder loop"
+      });
+    expect(submitted.status).toBe(201);
+    const approvalId = submitted.body.data.approvals[0].id as string;
+    const workItemId = submitted.body.data.workItem.id as string;
+
+    const requested = await request(app)
+      .post(`/v1/approvals/${approvalId}/decision`)
+      .set("x-actor-id", "manager-approver")
+      .set("x-actor-role", "it-admin")
+      .send({
+        decision: "info-requested",
+        comment: "Need stronger business rationale."
+      });
+    expect(requested.status).toBe(200);
+
+    const responded = await request(app)
+      .post(`/v1/work-items/${workItemId}/respond-info-request`)
+      .set("x-actor-id", "person-1")
+      .set("x-actor-role", "end-user")
+      .send({
+        body: "Admin access is required for migration incident triage for 72 hours.",
+        attachment: {
+          fileName: "migration-incident-context.pdf",
+          url: "https://example.com/migration-incident-context.pdf"
+        }
+      });
+    expect(responded.status).toBe(200);
+    expect(responded.body.data.reopenedApprovalIds).toContain(approvalId);
+    expect(responded.body.data.workItem.status).toBe("Submitted");
+
+    const approvals = await request(app).get("/v1/approvals").query({ workItemId });
+    expect(approvals.status).toBe(200);
+    const reopened = approvals.body.data.find((item: { id: string }) => item.id === approvalId);
+    expect(reopened.decision).toBe("pending");
+
+    const workItems = await request(app).get("/v1/work-items");
+    const workItem = workItems.body.data.find((item: { id: string }) => item.id === workItemId);
+    expect(workItem.comments.some((comment: { body: string }) => comment.body.includes("Requester response:"))).toBe(true);
+    expect(workItem.attachments.length).toBeGreaterThan(0);
+  });
+
   it("evaluates any-of approval chains and supersedes pending peers", async () => {
     const { app } = createApp();
 

@@ -77,6 +77,11 @@ export interface WorkItem {
   updatedAt: string;
 }
 
+export interface InfoRequestResponseResult {
+  workItem: WorkItem;
+  reopenedApprovalIds: string[];
+}
+
 export interface LostStolenActionStep {
   action: string;
   riskLevel: "low" | "medium" | "high";

@@ -24,6 +24,7 @@ import {
   GraphObject,
   GraphRelationship,
   GlobalSearchResponse,
+  InfoRequestResponseResult,
   IntegrationHealth,
   JmlJoinerExecutionResult,
   JmlJoinerRun,
@@ -445,8 +446,33 @@ export const runWorkItemBulkAction = async (payload: {
   return json.data;
 };
 
-export const listApprovals = async (): Promise<Approval[]> => {
-  return safe(() => get<Approval[]>("/approvals"), mockApprovals);
+export const listApprovals = async (workItemId?: string): Promise<Approval[]> => {
+  const query = workItemId ? `?workItemId=${encodeURIComponent(workItemId)}` : "";
+  return safe(() => get<Approval[]>(`/approvals${query}`), mockApprovals);
+};
+
+export const respondToInfoRequest = async (payload: {
+  workItemId: string;
+  body: string;
+  attachment?: { fileName: string; url: string };
+}): Promise<InfoRequestResponseResult> => {
+  const response = await fetch(`${API_BASE}/work-items/${payload.workItemId}/respond-info-request`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "person-1",
+      "x-actor-role": "end-user"
+    },
+    body: JSON.stringify({
+      body: payload.body,
+      attachment: payload.attachment
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to respond to info request");
+  }
+  const json = (await response.json()) as ApiResponse<InfoRequestResponseResult>;
+  return json.data;
 };
 
 export const listWorkflowDefinitions = async (): Promise<WorkflowDefinition[]> => {

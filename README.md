@@ -23,6 +23,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
 - Approval engine now supports request-info decisions and parallel chain semantics (`all` / `any`)
+- Requester response loop for info-requested approvals (`My Requests` -> respond -> approval reopens)
 - Approval timeout lifecycle with expiry and escalation to fallback approver
 - Workflow engine with execution logs and exception item creation
 - Built-in playbook workflow definitions:
@@ -163,6 +164,7 @@ npm --prefix web run build
 - `POST /v1/work-items/bulk`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decision`
 - `POST /v1/approvals/chains`
+- `POST /v1/work-items/:id/respond-info-request`
 - `POST /v1/approvals/:id/expiry`, `POST /v1/approvals/escalations/run`
 - `GET /v1/workflows/definitions`
 - `POST /v1/workflows/runs`, `POST /v1/workflows/runs/:id/advance`

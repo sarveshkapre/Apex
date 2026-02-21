@@ -197,6 +197,16 @@ export const commentCreateSchema = z.object({
   mentions: z.array(z.string()).default([])
 });
 
+export const infoRequestResponseSchema = z.object({
+  body: z.string().min(1),
+  attachment: z
+    .object({
+      fileName: z.string().min(1),
+      url: z.string().url()
+    })
+    .optional()
+});
+
 export const attachmentCreateSchema = z.object({
   fileName: z.string().min(1),
   url: z.string().url()

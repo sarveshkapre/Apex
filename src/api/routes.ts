@@ -55,6 +55,7 @@ import {
   cloudTagCoverageSchema,
   cloudTagEnforceSchema,
   commentCreateSchema,
+  infoRequestResponseSchema,
   configVersionCreateSchema,
   configVersionPublishSchema,
   connectorCreateSchema,
@@ -3470,6 +3471,110 @@ export const createRoutes = (store: ApexStore): Router => {
     });
 
     res.status(201).json({ data: comment });
+  });
+
+  router.post("/work-items/:id/respond-info-request", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = infoRequestResponseSchema.parse(req.body);
+    const workItem = store.workItems.get(req.params.id);
+    if (!workItem) {
+      res.status(404).json({ error: "Work item not found" });
+      return;
+    }
+
+    const canRespond = actor.role === "it-admin" || actor.id === workItem.requesterId;
+    if (!canRespond) {
+      res.status(403).json({ error: "Only requester or admin can respond to info requests" });
+      return;
+    }
+
+    const infoRequestedApprovals = [...store.approvals.values()].filter(
+      (approval) => approval.workItemId === workItem.id && approval.decision === "info-requested"
+    );
+    if (infoRequestedApprovals.length === 0) {
+      res.status(409).json({ error: "No info-requested approvals found for this work item" });
+      return;
+    }
+
+    const responseComment = {
+      id: store.createId(),
+      authorId: actor.id,
+      body: `Requester response: ${parsed.body}`,
+      mentions: infoRequestedApprovals.map((approval) => approval.approverId),
+      createdAt: nowIso()
+    };
+    workItem.comments.push(responseComment);
+
+    if (parsed.attachment) {
+      workItem.attachments.push({
+        id: store.createId(),
+        fileName: parsed.attachment.fileName,
+        url: parsed.attachment.url,
+        uploadedBy: actor.id,
+        createdAt: nowIso()
+      });
+    }
+
+    const reopenedApprovalIds: string[] = [];
+    for (const approval of infoRequestedApprovals) {
+      approval.decision = "pending";
+      approval.decidedAt = undefined;
+      approval.comment = `Requester responded at ${nowIso()}`;
+      store.approvals.set(approval.id, approval);
+      reopenedApprovalIds.push(approval.id);
+
+      store.pushTimeline({
+        tenantId: approval.tenantId,
+        workspaceId: approval.workspaceId,
+        entityType: "approval",
+        entityId: approval.id,
+        eventType: "approval.requested",
+        actor: actor.id,
+        createdAt: nowIso(),
+        reason: "requester-response",
+        payload: {
+          workItemId: approval.workItemId,
+          decision: "pending",
+          previousDecision: "info-requested"
+        }
+      });
+    }
+
+    workItem.status = "Submitted";
+    workItem.updatedAt = nowIso();
+    store.workItems.set(workItem.id, workItem);
+
+    store.pushTimeline({
+      tenantId: workItem.tenantId,
+      workspaceId: workItem.workspaceId,
+      entityType: "work-item",
+      entityId: workItem.id,
+      eventType: "comment.added",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: responseComment
+    });
+    store.pushTimeline({
+      tenantId: workItem.tenantId,
+      workspaceId: workItem.workspaceId,
+      entityType: "work-item",
+      entityId: workItem.id,
+      eventType: "object.updated",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        status: "Submitted",
+        reopenedApprovalIds
+      }
+    });
+
+    res.json({
+      data: {
+        workItem,
+        reopenedApprovalIds
+      }
+    });
   });
 
   router.post("/work-items/:id/attachments", (req, res) => {
