@@ -38,10 +38,16 @@ Implemented under `/v1`:
 - Signals preview/ingest
 - Data quality
 - Work items + approvals
+- Work item comments/attachments
 - Workflow definitions/runs
 - Playbooks catalog
 - Evidence export
 - AI query + plan preview
+- Admin APIs: schema, policy, connector, notifications, config versions
+- SLA breach API
+- Saved views + external ticket overlay APIs
+- CSV preview/apply import
+- AI drafting/insight APIs (policy draft, workflow draft, anomaly insights)
 
 ## 4. Safety Model
 
@@ -49,6 +55,8 @@ Implemented under `/v1`:
 - Approval objects are generated when risk or workflow step requires it
 - Approval decisions are logged in immutable timeline
 - Exceptions are raised automatically for failed automation steps
+- Policy evaluations can create remediation tasks and exception records
+- External ticket links are tracked with timeline events
 
 ## 5. Known Gaps to Full PRD
 

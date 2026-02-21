@@ -1,13 +1,14 @@
 import { GitMerge, Link2, Search } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatusBadge } from "@/components/app/status-badge";
+import { ViewManager } from "@/components/operator/view-manager";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { listObjects } from "@/lib/apex";
+import { listObjects, listSavedViews } from "@/lib/apex";
 
 export default async function GraphPage() {
-  const objects = await listObjects();
+  const [objects, views] = await Promise.all([listObjects(), listSavedViews()]);
 
   return (
     <div className="space-y-4">
@@ -25,17 +26,19 @@ export default async function GraphPage() {
         </CardContent>
       </Card>
 
+      <ViewManager initial={views} />
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {objects.map((object) => (
           <Card key={object.id} className="rounded-2xl border-zinc-300/70 bg-white/85">
-            <CardHeader className="flex flex-row items-start justify-between">
-              <div>
-                <CardTitle className="text-base">{object.type}</CardTitle>
-                <p className="text-xs text-zinc-500">{object.id}</p>
+            <CardContent className="space-y-2 pt-5 text-xs text-zinc-600">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm font-medium text-zinc-900">{object.type}</p>
+                  <p className="text-[11px] text-zinc-500">{object.id}</p>
+                </div>
+                <StatusBadge value={String(object.fields.compliance_state ?? "Active")} />
               </div>
-              <StatusBadge value={String(object.fields.compliance_state ?? "Active")} />
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-zinc-600">
               {Object.entries(object.fields)
                 .slice(0, 4)
                 .map(([key, value]) => (
@@ -44,9 +47,6 @@ export default async function GraphPage() {
                     <span className="truncate font-medium text-zinc-800">{String(value)}</span>
                   </p>
                 ))}
-              <p className="pt-1 text-[11px] text-zinc-500">
-                Quality: F {Math.round(object.quality.freshness * 100)}% / C {Math.round(object.quality.completeness * 100)}%
-              </p>
             </CardContent>
           </Card>
         ))}

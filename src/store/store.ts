@@ -2,8 +2,18 @@ import { v4 as uuidv4 } from "uuid";
 import {
   ActionExecutionLog,
   ApprovalRecord,
+  ConfigVersion,
+  ConnectorConfig,
+  ConnectorRun,
+  CustomObjectSchema,
+  ExternalTicketLink,
   GraphObject,
   GraphRelationship,
+  NotificationRule,
+  PolicyDefinition,
+  PolicyException,
+  SavedView,
+  SlaRule,
   SourceSignal,
   TimelineEvent,
   WorkflowDefinition,
@@ -21,6 +31,16 @@ export class ApexStore {
   workflowDefinitions = new Map<string, WorkflowDefinition>();
   workflowRuns = new Map<string, WorkflowRun>();
   actionLogs: ActionExecutionLog[] = [];
+  customSchemas = new Map<string, CustomObjectSchema>();
+  policies = new Map<string, PolicyDefinition>();
+  policyExceptions = new Map<string, PolicyException>();
+  slaRules = new Map<string, SlaRule>();
+  connectors = new Map<string, ConnectorConfig>();
+  connectorRuns = new Map<string, ConnectorRun>();
+  savedViews = new Map<string, SavedView>();
+  externalTicketLinks = new Map<string, ExternalTicketLink>();
+  notificationRules = new Map<string, NotificationRule>();
+  configVersions = new Map<string, ConfigVersion>();
 
   createId(): string {
     return uuidv4();

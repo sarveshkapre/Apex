@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/app/page-header";
+import { AssistantLab } from "@/components/portal/assistant-lab";
 import { CommandConsole } from "@/components/portal/command-console";
 
 export default function CommandPage() {
@@ -6,9 +7,10 @@ export default function CommandPage() {
     <div className="space-y-4">
       <PageHeader
         title="Chat / Command"
-        description="LLM-style query, request draft, and plan preview with policy guardrails."
+        description="LLM query, request draft, plan preview, policy/workflow drafting, and anomaly insights."
       />
       <CommandConsole />
+      <AssistantLab />
     </div>
   );
 }

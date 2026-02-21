@@ -34,6 +34,8 @@ export interface WorkItem {
   assignmentGroup?: string;
   linkedObjectIds: string[];
   tags: string[];
+  comments?: Array<{ id: string; authorId: string; body: string; createdAt: string }>;
+  attachments?: Array<{ id: string; fileName: string; url: string; createdAt: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -116,4 +118,98 @@ export interface CatalogItem {
   audience: string[];
   expectedDelivery: string;
   description: string;
+}
+
+export interface SlaBreach {
+  workItemId: string;
+  title: string;
+  priority: string;
+  assignmentGroup: string;
+  responseBreached: boolean;
+  resolutionBreached: boolean;
+  elapsedMinutes: number;
+  ruleId: string;
+}
+
+export interface SlaBreachesResponse {
+  totalBreaches: number;
+  breaches: SlaBreach[];
+}
+
+export interface CustomObjectSchema {
+  id: string;
+  name: string;
+  pluralName: string;
+  description?: string;
+  fields: Array<{ id: string; name: string; type: string; required: boolean }>;
+  relationships: string[];
+  active: boolean;
+}
+
+export interface PolicyDefinition {
+  id: string;
+  name: string;
+  description: string;
+  objectType: string;
+  severity: "low" | "medium" | "high";
+  active: boolean;
+  version: number;
+}
+
+export interface PolicyEvaluationResult {
+  policyId: string;
+  evaluatedCount: number;
+  exceptionCount: number;
+}
+
+export interface ConnectorConfig {
+  id: string;
+  name: string;
+  type: string;
+  mode: string;
+  status: "Healthy" | "Degraded" | "Failed";
+  recordsIngested: number;
+  recordsUpdated: number;
+  recordsFailed: number;
+  updatedAt: string;
+}
+
+export interface NotificationRule {
+  id: string;
+  name: string;
+  trigger: string;
+  channels: string[];
+  enabled: boolean;
+}
+
+export interface ConfigVersion {
+  id: string;
+  kind: string;
+  name: string;
+  version: number;
+  state: "draft" | "published" | "rolled_back";
+  changedBy: string;
+  reason: string;
+}
+
+export interface SavedView {
+  id: string;
+  name: string;
+  objectType: string;
+  columns: string[];
+}
+
+export interface ExternalTicketLink {
+  id: string;
+  workItemId: string;
+  provider: "ServiceNow" | "Jira" | "Other";
+  externalTicketId: string;
+  syncStatus: "linked" | "syncing" | "failed";
+}
+
+export interface AiInsight {
+  id: string;
+  title: string;
+  severity: string;
+  summary: string;
 }

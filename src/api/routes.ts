@@ -2,8 +2,16 @@ import { ErrorRequestHandler, Router } from "express";
 import { ZodError } from "zod";
 import {
   ApiActor,
+  ConfigVersion,
+  ConnectorConfig,
+  ConnectorRun,
+  CustomObjectSchema,
+  ExternalTicketLink,
   GraphObject,
   GraphRelationship,
+  NotificationRule,
+  PolicyDefinition,
+  SavedView,
   SourceSignal,
   WorkItem,
   UserRole
@@ -13,10 +21,23 @@ import { nowIso } from "../utils/time";
 import { can } from "../services/rbac";
 import {
   approvalDecisionSchema,
+  aiPromptSchema,
+  attachmentCreateSchema,
+  commentCreateSchema,
+  configVersionCreateSchema,
+  configVersionPublishSchema,
+  connectorCreateSchema,
+  connectorRunSchema,
+  csvPreviewSchema,
+  customSchemaCreateSchema,
+  externalTicketLinkCreateSchema,
+  notificationRuleCreateSchema,
   objectCreateSchema,
   objectUpdateSchema,
+  policyCreateSchema,
   relationshipCreateSchema,
   runWorkflowSchema,
+  savedViewCreateSchema,
   signalIngestSchema,
   workItemCreateSchema,
   workItemUpdateSchema
@@ -25,6 +46,8 @@ import { findCandidates, ingestSignal } from "../services/reconciliation";
 import { computeQualityDashboard } from "../services/quality";
 import { buildEvidencePackage } from "../services/evidence";
 import { WorkflowEngine } from "../services/workflowEngine";
+import { evaluatePolicy } from "../services/policyEngine";
+import { computeSlaBreaches } from "../services/sla";
 
 const roles: UserRole[] = [
   "end-user",
@@ -187,6 +210,53 @@ export const createRoutes = (store: ApexStore): Router => {
       slaBreaches: 9
     }
   };
+
+  if (store.slaRules.size === 0) {
+    const baselineRules: Array<{
+      id: string;
+      tenantId: string;
+      workspaceId: string;
+      workItemType: "Request" | "Incident";
+      priority: "P1" | "P2";
+      assignmentGroup: string;
+      region: string;
+      responseMinutes: number;
+      resolutionMinutes: number;
+      pauseStatuses: Array<"Waiting">;
+      active: boolean;
+    }> = [
+      {
+        id: "sla-request-p2",
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        workItemType: "Request",
+        priority: "P2",
+        assignmentGroup: "*",
+        region: "global",
+        responseMinutes: 120,
+        resolutionMinutes: 1440,
+        pauseStatuses: ["Waiting"],
+        active: true
+      },
+      {
+        id: "sla-incident-p1",
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        workItemType: "Incident",
+        priority: "P1",
+        assignmentGroup: "*",
+        region: "global",
+        responseMinutes: 30,
+        resolutionMinutes: 240,
+        pauseStatuses: ["Waiting"],
+        active: true
+      }
+    ];
+
+    for (const rule of baselineRules) {
+      store.slaRules.set(rule.id, { ...rule });
+    }
+  }
 
   router.get("/health", (_req, res) => {
     res.json({ ok: true, service: "apex-control-plane", now: nowIso() });
@@ -352,7 +422,23 @@ export const createRoutes = (store: ApexStore): Router => {
   });
 
   router.get("/integrations/health", (_req, res) => {
-    res.json({ data: integrationsHealth });
+    const configured = [...store.connectors.values()].map((connector) => ({
+      id: connector.id,
+      name: connector.name,
+      type: connector.type,
+      status: connector.status,
+      lastSuccessfulSync: connector.lastSuccessfulSync ?? connector.updatedAt,
+      ingested: connector.recordsIngested,
+      updated: connector.recordsUpdated,
+      failed: connector.recordsFailed,
+      message:
+        connector.status === "Healthy"
+          ? "Connector healthy."
+          : connector.status === "Degraded"
+            ? "Connector degraded. Review retries and mappings."
+            : "Connector failed. Action required."
+    }));
+    res.json({ data: configured.length > 0 ? configured : integrationsHealth });
   });
 
   router.get("/dashboards/:name", (req, res) => {
@@ -392,6 +478,8 @@ export const createRoutes = (store: ApexStore): Router => {
       status: "Submitted",
       createdAt: nowIso(),
       updatedAt: nowIso(),
+      comments: [],
+      attachments: [],
       ...parsed
     };
 
@@ -448,6 +536,485 @@ export const createRoutes = (store: ApexStore): Router => {
     });
 
     res.json({ data: workItem });
+  });
+
+  router.post("/work-items/:id/comments", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = commentCreateSchema.parse(req.body);
+    const workItem = store.workItems.get(req.params.id);
+    if (!workItem) {
+      res.status(404).json({ error: "Work item not found" });
+      return;
+    }
+
+    const comment = {
+      id: store.createId(),
+      authorId: actor.id,
+      body: parsed.body,
+      mentions: parsed.mentions,
+      createdAt: nowIso()
+    };
+    workItem.comments.push(comment);
+    workItem.updatedAt = nowIso();
+    store.workItems.set(workItem.id, workItem);
+
+    store.pushTimeline({
+      tenantId: workItem.tenantId,
+      workspaceId: workItem.workspaceId,
+      entityType: "work-item",
+      entityId: workItem.id,
+      eventType: "comment.added",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: comment
+    });
+
+    res.status(201).json({ data: comment });
+  });
+
+  router.post("/work-items/:id/attachments", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = attachmentCreateSchema.parse(req.body);
+    const workItem = store.workItems.get(req.params.id);
+    if (!workItem) {
+      res.status(404).json({ error: "Work item not found" });
+      return;
+    }
+
+    const attachment = {
+      id: store.createId(),
+      fileName: parsed.fileName,
+      url: parsed.url,
+      uploadedBy: actor.id,
+      createdAt: nowIso()
+    };
+    workItem.attachments.push(attachment);
+    workItem.updatedAt = nowIso();
+    store.workItems.set(workItem.id, workItem);
+
+    store.pushTimeline({
+      tenantId: workItem.tenantId,
+      workspaceId: workItem.workspaceId,
+      entityType: "work-item",
+      entityId: workItem.id,
+      eventType: "attachment.added",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: attachment
+    });
+
+    res.status(201).json({ data: attachment });
+  });
+
+  router.get("/sla/breaches", (_req, res) => {
+    res.json({ data: computeSlaBreaches(store) });
+  });
+
+  router.get("/views", (_req, res) => {
+    res.json({ data: [...store.savedViews.values()] });
+  });
+
+  router.post("/views", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:view"));
+    const parsed = savedViewCreateSchema.parse(req.body);
+    const view: SavedView = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      objectType: parsed.objectType,
+      filters: parsed.filters,
+      columns: parsed.columns,
+      createdBy: actor.id,
+      createdAt: nowIso()
+    };
+    store.savedViews.set(view.id, view);
+    res.status(201).json({ data: view });
+  });
+
+  router.get("/overlay/external-ticket-links", (_req, res) => {
+    res.json({ data: [...store.externalTicketLinks.values()] });
+  });
+
+  router.post("/overlay/external-ticket-links", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = externalTicketLinkCreateSchema.parse(req.body);
+    const link: ExternalTicketLink = {
+      id: store.createId(),
+      workItemId: parsed.workItemId,
+      provider: parsed.provider,
+      externalTicketId: parsed.externalTicketId,
+      externalUrl: parsed.externalUrl,
+      syncStatus: "linked",
+      createdAt: nowIso()
+    };
+    store.externalTicketLinks.set(link.id, link);
+
+    const workItem = store.workItems.get(link.workItemId);
+    if (workItem) {
+      workItem.comments.push({
+        id: store.createId(),
+        authorId: actor.id,
+        body: `Linked ${link.provider} ticket ${link.externalTicketId}`,
+        mentions: [],
+        createdAt: nowIso()
+      });
+      workItem.updatedAt = nowIso();
+      store.workItems.set(workItem.id, workItem);
+    }
+
+    store.pushTimeline({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      entityType: "work-item",
+      entityId: link.workItemId,
+      eventType: "external-ticket.linked",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { ...link }
+    });
+
+    res.status(201).json({ data: link });
+  });
+
+  router.post("/overlay/external-ticket-links/:id/sync", (req, res) => {
+    const link = store.externalTicketLinks.get(req.params.id);
+    if (!link) {
+      res.status(404).json({ error: "External ticket link not found" });
+      return;
+    }
+
+    link.syncStatus = "syncing";
+    store.externalTicketLinks.set(link.id, link);
+    link.syncStatus = "linked";
+    link.lastSyncedAt = nowIso();
+    store.externalTicketLinks.set(link.id, link);
+    res.json({ data: link });
+  });
+
+  router.get("/admin/schemas", (_req, res) => {
+    res.json({ data: [...store.customSchemas.values()] });
+  });
+
+  router.post("/admin/schemas", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = customSchemaCreateSchema.parse(req.body);
+    const schema: CustomObjectSchema = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      pluralName: parsed.pluralName,
+      description: parsed.description,
+      fields: parsed.fields.map((field) => ({
+        id: store.createId(),
+        name: field.name,
+        type: field.type,
+        required: field.required,
+        allowedValues: field.allowedValues
+      })),
+      relationships: parsed.relationships,
+      active: true,
+      createdBy: actor.id,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.customSchemas.set(schema.id, schema);
+    res.status(201).json({ data: schema });
+  });
+
+  router.get("/admin/policies", (_req, res) => {
+    res.json({ data: [...store.policies.values()] });
+  });
+
+  router.post("/admin/policies", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = policyCreateSchema.parse(req.body);
+    const policy: PolicyDefinition = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      description: parsed.description,
+      objectType: parsed.objectType,
+      severity: parsed.severity,
+      expression: parsed.expression,
+      remediation: parsed.remediation,
+      active: parsed.active,
+      version: 1,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.policies.set(policy.id, policy);
+    res.status(201).json({ data: policy });
+  });
+
+  router.post("/admin/policies/:id/evaluate", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const policy = store.policies.get(req.params.id);
+    if (!policy) {
+      res.status(404).json({ error: "Policy not found" });
+      return;
+    }
+    const result = evaluatePolicy(store, policy, actor.id);
+    res.json({ data: result });
+  });
+
+  router.get("/admin/policies/:id/exceptions", (req, res) => {
+    const data = [...store.policyExceptions.values()].filter((item) => item.policyId === req.params.id);
+    res.json({ data });
+  });
+
+  router.get("/admin/connectors", (_req, res) => {
+    res.json({ data: [...store.connectors.values()] });
+  });
+
+  router.post("/admin/connectors", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = connectorCreateSchema.parse(req.body);
+    const connector: ConnectorConfig = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      type: parsed.type,
+      mode: parsed.mode,
+      status: "Healthy",
+      recordsIngested: 0,
+      recordsCreated: 0,
+      recordsUpdated: 0,
+      recordsFailed: 0,
+      fieldMappings: parsed.fieldMappings,
+      transforms: parsed.transforms.map((transform) => ({
+        id: transform.id ?? store.createId(),
+        field: transform.field,
+        type: transform.type,
+        config: transform.config
+      })),
+      filters: parsed.filters.map((filter) => ({
+        id: filter.id ?? store.createId(),
+        expression: filter.expression
+      })),
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.connectors.set(connector.id, connector);
+
+    store.pushTimeline({
+      tenantId: connector.tenantId,
+      workspaceId: connector.workspaceId,
+      entityType: "object",
+      entityId: connector.id,
+      eventType: "object.created",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { type: "connector" }
+    });
+
+    res.status(201).json({ data: connector });
+  });
+
+  router.post("/admin/connectors/:id/run", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = connectorRunSchema.parse(req.body);
+    const connector = store.connectors.get(req.params.id);
+    if (!connector) {
+      res.status(404).json({ error: "Connector not found" });
+      return;
+    }
+
+    const run: ConnectorRun = {
+      id: store.createId(),
+      connectorId: connector.id,
+      mode: parsed.mode,
+      startedAt: nowIso(),
+      completedAt: nowIso(),
+      status: connector.status === "Failed" ? "failed" : "success",
+      summary:
+        connector.status === "Failed"
+          ? "Connector failed. Review auth and mapping."
+          : `${parsed.mode} completed with no blocking errors.`
+    };
+    store.connectorRuns.set(run.id, run);
+
+    connector.lastSuccessfulSync = run.status === "success" ? nowIso() : connector.lastSuccessfulSync;
+    connector.recordsIngested += parsed.mode === "sync" ? 12 : 0;
+    connector.recordsUpdated += parsed.mode === "sync" ? 5 : 0;
+    connector.updatedAt = nowIso();
+    store.connectors.set(connector.id, connector);
+
+    store.pushTimeline({
+      tenantId: connector.tenantId,
+      workspaceId: connector.workspaceId,
+      entityType: "object",
+      entityId: connector.id,
+      eventType: "connector.sync",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { ...run }
+    });
+
+    res.status(201).json({ data: run });
+  });
+
+  router.get("/admin/connectors/:id/runs", (req, res) => {
+    const data = [...store.connectorRuns.values()].filter((run) => run.connectorId === req.params.id);
+    res.json({ data });
+  });
+
+  router.get("/admin/notifications", (_req, res) => {
+    res.json({ data: [...store.notificationRules.values()] });
+  });
+
+  router.post("/admin/notifications", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = notificationRuleCreateSchema.parse(req.body);
+    const rule: NotificationRule = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      name: parsed.name,
+      trigger: parsed.trigger,
+      channels: parsed.channels,
+      enabled: parsed.enabled,
+      createdAt: nowIso()
+    };
+    store.notificationRules.set(rule.id, rule);
+    res.status(201).json({ data: rule });
+  });
+
+  router.get("/admin/config-versions", (_req, res) => {
+    res.json({ data: [...store.configVersions.values()] });
+  });
+
+  router.post("/admin/config-versions", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = configVersionCreateSchema.parse(req.body);
+    const currentVersions = [...store.configVersions.values()].filter(
+      (item) => item.kind === parsed.kind && item.name === parsed.name
+    );
+    const version: ConfigVersion = {
+      id: store.createId(),
+      tenantId: parsed.tenantId,
+      workspaceId: parsed.workspaceId,
+      kind: parsed.kind,
+      name: parsed.name,
+      version: currentVersions.length + 1,
+      state: "draft",
+      changedBy: actor.id,
+      reason: parsed.reason,
+      payload: parsed.payload,
+      createdAt: nowIso()
+    };
+    store.configVersions.set(version.id, version);
+    res.status(201).json({ data: version });
+  });
+
+  router.post("/admin/config-versions/:id/state", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:edit"));
+    const parsed = configVersionPublishSchema.parse(req.body);
+    const version = store.configVersions.get(req.params.id);
+    if (!version) {
+      res.status(404).json({ error: "Config version not found" });
+      return;
+    }
+    version.state = parsed.state;
+    version.reason = parsed.reason;
+    store.configVersions.set(version.id, version);
+
+    store.pushTimeline({
+      tenantId: version.tenantId,
+      workspaceId: version.workspaceId,
+      entityType: "policy",
+      entityId: version.id,
+      eventType: "config.published",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { state: parsed.state, kind: version.kind, name: version.name }
+    });
+
+    res.json({ data: version });
+  });
+
+  router.post("/import/csv/preview", (req, res) => {
+    const parsed = csvPreviewSchema.parse(req.body);
+    const sample = parsed.rows.slice(0, 5).map((row, index) => ({
+      index,
+      mapped: Object.entries(parsed.fieldMapping).reduce<Record<string, unknown>>((acc, [sourceField, targetField]) => {
+        acc[targetField] = row[sourceField];
+        return acc;
+      }, {}),
+      raw: row
+    }));
+
+    res.json({
+      data: {
+        objectType: parsed.objectType,
+        totalRows: parsed.rows.length,
+        mappedSample: sample,
+        validation: {
+          errors: [],
+          warnings: sample.filter((item) => Object.keys(item.mapped).length === 0).map((item) => item.index)
+        }
+      }
+    });
+  });
+
+  router.post("/import/csv/apply", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "object:create"));
+    const parsed = csvPreviewSchema.parse(req.body);
+    const createdIds: string[] = [];
+
+    for (const row of parsed.rows) {
+      const mapped = Object.entries(parsed.fieldMapping).reduce<Record<string, unknown>>((acc, [sourceField, targetField]) => {
+        acc[targetField] = row[sourceField];
+        return acc;
+      }, {});
+      const object: GraphObject = {
+        id: store.createId(),
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        type: parsed.objectType,
+        fields: Object.keys(mapped).length > 0 ? mapped : row,
+        provenance: {},
+        quality: {
+          freshness: 0.7,
+          completeness: 0.6,
+          consistency: 0.8,
+          coverage: 0.6
+        },
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.objects.set(object.id, object);
+      createdIds.push(object.id);
+    }
+
+    store.pushTimeline({
+      tenantId: "tenant-demo",
+      workspaceId: "workspace-demo",
+      entityType: "object",
+      entityId: createdIds[0] ?? store.createId(),
+      eventType: "object.created",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: { importedCount: createdIds.length, objectType: parsed.objectType }
+    });
+
+    res.status(201).json({ data: { importedCount: createdIds.length, ids: createdIds } });
   });
 
   router.get("/approvals", (req, res) => {
@@ -525,7 +1092,8 @@ export const createRoutes = (store: ApexStore): Router => {
   });
 
   router.post("/ai/query", (req, res) => {
-    const prompt = String(req.body.prompt ?? "").toLowerCase();
+    const parsed = aiPromptSchema.parse(req.body);
+    const prompt = parsed.prompt.toLowerCase();
 
     const matchedObjects = [...store.objects.values()].filter((object) => {
       const stringified = JSON.stringify(object.fields).toLowerCase();
@@ -581,7 +1149,8 @@ export const createRoutes = (store: ApexStore): Router => {
   });
 
   router.post("/ai/request-draft", (req, res) => {
-    const prompt = String(req.body.prompt ?? "");
+    const parsed = aiPromptSchema.parse(req.body);
+    const prompt = parsed.prompt;
     const lowerPrompt = prompt.toLowerCase();
     const type = lowerPrompt.includes("access")
       ? "Request"
@@ -621,6 +1190,90 @@ export const createRoutes = (store: ApexStore): Router => {
       .slice(0, 10);
 
     res.json({ data: { suggestions } });
+  });
+
+  router.post("/ai/policy-draft", (req, res) => {
+    const parsed = aiPromptSchema.parse(req.body);
+    const prompt = parsed.prompt.toLowerCase();
+    const highRisk = prompt.includes("quarantine") || prompt.includes("disable");
+
+    res.json({
+      data: {
+        prompt: parsed.prompt,
+        draftPolicy: {
+          name: "AI Drafted Policy",
+          objectType: prompt.includes("device") ? "Device" : "Identity",
+          expression: {
+            field: prompt.includes("encryption") ? "encryption_state" : "mfa_enabled",
+            operator: "equals",
+            value: prompt.includes("encryption") ? "enabled" : true
+          },
+          remediation: {
+            notify: true,
+            createTask: true,
+            escalationDays: 7,
+            quarantine: highRisk
+          },
+          reviewRequired: true
+        }
+      }
+    });
+  });
+
+  router.post("/ai/workflow-draft", (req, res) => {
+    const parsed = aiPromptSchema.parse(req.body);
+    const lower = parsed.prompt.toLowerCase();
+
+    res.json({
+      data: {
+        prompt: parsed.prompt,
+        workflow: {
+          name: lower.includes("onboard") ? "Onboarding Draft Workflow" : "Automation Draft Workflow",
+          trigger: lower.includes("termination") ? "hris.termination" : "manual.request",
+          steps: [
+            { name: "Collect inputs", type: "human-task", riskLevel: "low" },
+            { name: "Run baseline automation", type: "automation", riskLevel: "medium" },
+            {
+              name: lower.includes("admin") ? "Security approval" : "Manager approval",
+              type: "approval",
+              riskLevel: "medium"
+            },
+            { name: "Finalize and notify", type: "notification", riskLevel: "low" }
+          ],
+          requiresReview: true
+        }
+      }
+    });
+  });
+
+  router.get("/ai/anomaly-insights", (_req, res) => {
+    const staleConnectors = [...store.connectors.values()].filter((connector) => connector.status !== "Healthy");
+    const openPolicyExceptions = [...store.policyExceptions.values()].filter((exception) => exception.status === "open");
+
+    res.json({
+      data: {
+        insights: [
+          {
+            id: "insight-shadow-it",
+            title: "Potential shadow IT growth",
+            severity: "medium",
+            summary: "Detected access requests for unsanctioned tools exceeding baseline trend."
+          },
+          {
+            id: "insight-connectors",
+            title: "Connector instability",
+            severity: staleConnectors.length > 0 ? "high" : "low",
+            summary: `${staleConnectors.length} connectors are degraded or failed.`
+          },
+          {
+            id: "insight-policy-gaps",
+            title: "Policy remediation backlog",
+            severity: openPolicyExceptions.length > 10 ? "high" : "medium",
+            summary: `${openPolicyExceptions.length} policy exceptions are unresolved.`
+          }
+        ]
+      }
+    });
   });
 
   const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {

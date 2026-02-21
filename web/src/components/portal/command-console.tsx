@@ -10,8 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 export function CommandConsole() {
   const [query, setQuery] = React.useState("Show all laptops not checked in for 14 days in SF office");
   const [objective, setObjective] = React.useState("Offboard Sam today and recover all assets");
+  const [requestPrompt, setRequestPrompt] = React.useState("I need Figma access for my new designer starting Monday.");
   const [answer, setAnswer] = React.useState<string>("");
   const [plan, setPlan] = React.useState<Array<Record<string, unknown>>>([]);
+  const [draft, setDraft] = React.useState<Record<string, unknown> | null>(null);
   const [error, setError] = React.useState<string>("");
 
   const runQuery = async () => {
@@ -44,8 +46,23 @@ export function CommandConsole() {
     }
   };
 
+  const generateDraft = async () => {
+    setError("");
+    try {
+      const response = await fetch("/api/apex/ai/request-draft", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: requestPrompt, requesterId: "person-1" })
+      });
+      const json = await response.json();
+      setDraft(json.data);
+    } catch {
+      setError("Request draft unavailable. Backend API may be offline.");
+    }
+  };
+
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
+    <div className="grid gap-4 xl:grid-cols-3">
       <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
         <CardHeader>
           <CardTitle className="text-base">Natural language query</CardTitle>
@@ -57,6 +74,24 @@ export function CommandConsole() {
             Run query
           </Button>
           {answer ? <p className="text-sm text-zinc-700">{answer}</p> : null}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
+        <CardHeader>
+          <CardTitle className="text-base">Draft request</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea value={requestPrompt} onChange={(event) => setRequestPrompt(event.target.value)} className="min-h-20" />
+          <Button onClick={generateDraft} variant="outline" className="rounded-xl">
+            <Bot className="mr-2 h-4 w-4" />
+            Generate draft
+          </Button>
+          {draft ? (
+            <pre className="overflow-auto rounded-lg bg-zinc-900/95 p-3 text-xs text-zinc-100">
+              {JSON.stringify(draft, null, 2)}
+            </pre>
+          ) : null}
         </CardContent>
       </Card>
 

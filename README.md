@@ -34,6 +34,20 @@ This repository now ships a full-stack implementation baseline for Apex:
   - dashboards (`/v1/dashboards/:name`)
   - catalog items (`/v1/catalog/items`)
   - global search (`/v1/search`)
+- Admin/operations APIs:
+  - custom schemas (`/v1/admin/schemas`)
+  - policy CRUD + evaluation (`/v1/admin/policies`, `/v1/admin/policies/:id/evaluate`)
+  - connector CRUD + run history (`/v1/admin/connectors`, `/v1/admin/connectors/:id/run`)
+  - notification rules (`/v1/admin/notifications`)
+  - config versioning (`/v1/admin/config-versions`, publish/rollback state transitions)
+  - SLA breach computation (`/v1/sla/breaches`)
+  - saved views (`/v1/views`)
+  - external ticket overlay linking (`/v1/overlay/external-ticket-links`)
+  - CSV preview/apply import (`/v1/import/csv/preview`, `/v1/import/csv/apply`)
+- AI assistant APIs:
+  - policy draft assistant (`/v1/ai/policy-draft`)
+  - workflow draft assistant (`/v1/ai/workflow-draft`)
+  - anomaly insights (`/v1/ai/anomaly-insights`)
 
 ## Frontend surfaces (`web`)
 
@@ -41,6 +55,9 @@ This repository now ships a full-stack implementation baseline for Apex:
 - `/operator` Overview, Queue Center, Asset Graph, Workflows, Policies, Integrations, Reports, Admin Studio
 - Shared command palette with keyboard shortcut (`Cmd/Ctrl + K`)
 - Role-aware nav shell and modern minimalist UI built with Next.js + Tailwind + shadcn
+- Admin Studio interactive controls for creating schemas/policies/notification rules
+- Operator Queue SLA breach visibility + external ticket linking workflow
+- Command surface with AI request drafting, policy/workflow draft generation, and insights
 
 ## Run
 

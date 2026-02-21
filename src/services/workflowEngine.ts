@@ -115,6 +115,8 @@ export class WorkflowEngine {
           assignmentGroup: "exceptions",
           linkedObjectIds: [],
           tags: ["automation-failed"],
+          comments: [],
+          attachments: [],
           createdAt: nowIso(),
           updatedAt: nowIso()
         };
@@ -255,6 +257,8 @@ export class WorkflowEngine {
         assignmentGroup: String(config.assignmentGroup ?? "it-ops"),
         linkedObjectIds: [],
         tags: ["workflow-generated"],
+        comments: [],
+        attachments: [],
         createdAt: nowIso(),
         updatedAt: nowIso()
       };

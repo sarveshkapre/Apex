@@ -1,11 +1,20 @@
 import {
   Approval,
+  AiInsight,
   CatalogItem,
+  ConfigVersion,
+  ConnectorConfig,
+  CustomObjectSchema,
   DashboardKpis,
+  ExternalTicketLink,
   GraphObject,
   IntegrationHealth,
   KnowledgeArticle,
+  NotificationRule,
+  PolicyDefinition,
   QualityDashboard,
+  SavedView,
+  SlaBreachesResponse,
   WorkItem,
   WorkflowDefinition
 } from "@/lib/types";
@@ -70,6 +79,8 @@ export const mockWorkItems: WorkItem[] = [
     assignmentGroup: "Access Ops",
     linkedObjectIds: ["saas-1"],
     tags: ["saas", "access"],
+    comments: [],
+    attachments: [],
     createdAt: now,
     updatedAt: now
   },
@@ -84,6 +95,8 @@ export const mockWorkItems: WorkItem[] = [
     assignmentGroup: "Endpoint",
     linkedObjectIds: ["dev-1"],
     tags: ["device"],
+    comments: [],
+    attachments: [],
     createdAt: now,
     updatedAt: now
   },
@@ -97,6 +110,8 @@ export const mockWorkItems: WorkItem[] = [
     assignmentGroup: "Security",
     linkedObjectIds: ["dev-1"],
     tags: ["automation-failed"],
+    comments: [],
+    attachments: [],
     createdAt: now,
     updatedAt: now
   }
@@ -291,5 +306,128 @@ export const mockCatalog: CatalogItem[] = [
     audience: ["employee"],
     expectedDelivery: "4 hours",
     description: "Time-boxed privileged access with strict approvals and attestations."
+  }
+];
+
+export const mockSlaBreaches: SlaBreachesResponse = {
+  totalBreaches: 2,
+  breaches: [
+    {
+      workItemId: "req-2",
+      title: "Laptop replacement",
+      priority: "P1",
+      assignmentGroup: "Endpoint",
+      responseBreached: true,
+      resolutionBreached: false,
+      elapsedMinutes: 190,
+      ruleId: "sla-request-p2"
+    },
+    {
+      workItemId: "exc-1",
+      title: "EDR signal mismatch",
+      priority: "P1",
+      assignmentGroup: "Security",
+      responseBreached: true,
+      resolutionBreached: true,
+      elapsedMinutes: 420,
+      ruleId: "sla-incident-p1"
+    }
+  ]
+};
+
+export const mockCustomSchemas: CustomObjectSchema[] = [
+  {
+    id: "schema-vendor-risk",
+    name: "VendorRisk",
+    pluralName: "VendorRisks",
+    description: "Risk register for third-party vendors",
+    fields: [
+      { id: "f-risk", name: "risk_score", type: "number", required: true },
+      { id: "f-owner", name: "owner", type: "string", required: true }
+    ],
+    relationships: ["owned_by", "linked_to"],
+    active: true
+  }
+];
+
+export const mockPolicies: PolicyDefinition[] = [
+  {
+    id: "policy-encryption",
+    name: "Encryption required",
+    description: "All laptops must report encryption enabled from MDM source.",
+    objectType: "Device",
+    severity: "high",
+    active: true,
+    version: 1
+  }
+];
+
+export const mockConnectorConfigs: ConnectorConfig[] = [
+  {
+    id: "conn-1",
+    name: "Okta",
+    type: "IdP",
+    mode: "bidirectional",
+    status: "Degraded",
+    recordsIngested: 3120,
+    recordsUpdated: 84,
+    recordsFailed: 12,
+    updatedAt: now
+  }
+];
+
+export const mockNotificationRules: NotificationRule[] = [
+  {
+    id: "nr-1",
+    name: "Approval needed alerts",
+    trigger: "approval_needed",
+    channels: ["in-app", "email"],
+    enabled: true
+  }
+];
+
+export const mockConfigVersions: ConfigVersion[] = [
+  {
+    id: "cfg-1",
+    kind: "workflow",
+    name: "JML Leaver",
+    version: 3,
+    state: "published",
+    changedBy: "admin-1",
+    reason: "Updated legal-hold branch"
+  }
+];
+
+export const mockSavedViews: SavedView[] = [
+  {
+    id: "view-stale-devices",
+    name: "Stale Devices",
+    objectType: "Device",
+    columns: ["asset_tag", "serial_number", "last_checkin", "compliance_state"]
+  }
+];
+
+export const mockExternalLinks: ExternalTicketLink[] = [
+  {
+    id: "xt-1",
+    workItemId: "req-1",
+    provider: "Jira",
+    externalTicketId: "ITOPS-912",
+    syncStatus: "linked"
+  }
+];
+
+export const mockAiInsights: AiInsight[] = [
+  {
+    id: "insight-1",
+    title: "Connector instability",
+    severity: "high",
+    summary: "Identity connector has repeated rate-limit errors."
+  },
+  {
+    id: "insight-2",
+    title: "Policy backlog growth",
+    severity: "medium",
+    summary: "Policy exception queue grew 18% over 7 days."
   }
 ];

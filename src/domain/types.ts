@@ -98,6 +98,8 @@ export type TimelineEventType =
   | "object.updated"
   | "relationship.created"
   | "relationship.deleted"
+  | "comment.added"
+  | "attachment.added"
   | "workflow.started"
   | "workflow.step.executed"
   | "workflow.completed"
@@ -105,6 +107,9 @@ export type TimelineEventType =
   | "approval.decided"
   | "exception.created"
   | "policy.evaluated"
+  | "external-ticket.linked"
+  | "connector.sync"
+  | "config.published"
   | "manual.override";
 
 export interface TimelineEvent {
@@ -148,6 +153,22 @@ export type WorkItemStatus = (typeof workItemStatuses)[number];
 
 export type Priority = "P0" | "P1" | "P2" | "P3" | "P4";
 
+export interface WorkItemComment {
+  id: string;
+  authorId: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
+}
+
+export interface WorkItemAttachment {
+  id: string;
+  fileName: string;
+  url: string;
+  uploadedBy: string;
+  createdAt: string;
+}
+
 export interface WorkItem {
   id: string;
   tenantId: TenantId;
@@ -162,6 +183,8 @@ export interface WorkItem {
   assignmentGroup?: string;
   linkedObjectIds: string[];
   tags: string[];
+  comments: WorkItemComment[];
+  attachments: WorkItemAttachment[];
   responseSlaAt?: string;
   resolutionSlaAt?: string;
   createdAt: string;
@@ -287,4 +310,158 @@ export interface ReconciliationCandidate {
   confidence: number;
   matchReason: string;
   conflictingFields: string[];
+}
+
+export type CustomFieldType = "string" | "number" | "date" | "enum" | "bool" | "json";
+
+export interface CustomFieldDefinition {
+  id: string;
+  name: string;
+  type: CustomFieldType;
+  required: boolean;
+  allowedValues?: string[];
+  readRoles?: UserRole[];
+  writeRoles?: UserRole[];
+}
+
+export interface CustomObjectSchema {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  pluralName: string;
+  description?: string;
+  fields: CustomFieldDefinition[];
+  relationships: RelationshipType[];
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PolicyDefinition {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  description: string;
+  objectType: ObjectType;
+  severity: "low" | "medium" | "high";
+  expression: {
+    field: string;
+    operator: "equals" | "not_equals" | "includes" | "exists" | "lt" | "gt";
+    value?: string | number | boolean;
+  };
+  remediation: {
+    notify: boolean;
+    createTask: boolean;
+    escalationDays?: number;
+    quarantine?: boolean;
+  };
+  active: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PolicyException {
+  id: string;
+  policyId: string;
+  objectId: string;
+  reason: string;
+  status: "open" | "waived" | "resolved";
+  waiverExpiresAt?: string;
+  createdAt: string;
+}
+
+export interface SlaRule {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  workItemType: WorkItemType;
+  priority: Priority;
+  assignmentGroup: string;
+  region: string;
+  responseMinutes: number;
+  resolutionMinutes: number;
+  pauseStatuses: WorkItemStatus[];
+  active: boolean;
+}
+
+export interface ConnectorConfig {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  type: "HRIS" | "IdP" | "MDM" | "EDR" | "Cloud" | "ServiceDesk" | "FileImport";
+  mode: "import" | "export" | "bidirectional" | "event";
+  status: "Healthy" | "Degraded" | "Failed";
+  lastSuccessfulSync?: string;
+  recordsIngested: number;
+  recordsCreated: number;
+  recordsUpdated: number;
+  recordsFailed: number;
+  fieldMappings: Record<string, string>;
+  transforms: Array<{ id: string; field: string; type: string; config: Record<string, unknown> }>;
+  filters: Array<{ id: string; expression: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConnectorRun {
+  id: string;
+  connectorId: string;
+  mode: "test" | "dry-run" | "sync";
+  startedAt: string;
+  completedAt?: string;
+  status: "running" | "success" | "failed";
+  summary: string;
+}
+
+export interface SavedView {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  objectType: string;
+  filters: Record<string, unknown>;
+  columns: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ExternalTicketLink {
+  id: string;
+  workItemId: string;
+  provider: "ServiceNow" | "Jira" | "Other";
+  externalTicketId: string;
+  externalUrl?: string;
+  syncStatus: "linked" | "syncing" | "failed";
+  lastSyncedAt?: string;
+  createdAt: string;
+}
+
+export interface NotificationRule {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  name: string;
+  trigger: "status_change" | "approval_needed" | "sla_breach" | "action_failed" | "shipment_pending" | "reclaim_warning";
+  channels: Array<"in-app" | "email" | "chat">;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface ConfigVersion {
+  id: string;
+  tenantId: TenantId;
+  workspaceId: WorkspaceId;
+  kind: "workflow" | "policy" | "catalog" | "schema" | "rbac";
+  name: string;
+  version: number;
+  state: "draft" | "published" | "rolled_back";
+  changedBy: string;
+  reason: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
 }

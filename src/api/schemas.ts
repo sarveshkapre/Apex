@@ -71,3 +71,133 @@ export const approvalDecisionSchema = z.object({
   decision: z.enum(["approved", "rejected"]),
   comment: z.string().optional()
 });
+
+export const commentCreateSchema = z.object({
+  body: z.string().min(1),
+  mentions: z.array(z.string()).default([])
+});
+
+export const attachmentCreateSchema = z.object({
+  fileName: z.string().min(1),
+  url: z.string().url()
+});
+
+export const customSchemaCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  pluralName: z.string().min(1),
+  description: z.string().optional(),
+  fields: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        type: z.enum(["string", "number", "date", "enum", "bool", "json"]),
+        required: z.boolean().default(false),
+        allowedValues: z.array(z.string()).optional()
+      })
+    )
+    .default([]),
+  relationships: z.array(z.enum(relationshipTypes)).default([])
+});
+
+export const policyCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  objectType: z.enum(coreObjectTypes),
+  severity: z.enum(["low", "medium", "high"]),
+  expression: z.object({
+    field: z.string().min(1),
+    operator: z.enum(["equals", "not_equals", "includes", "exists", "lt", "gt"]),
+    value: z.union([z.string(), z.number(), z.boolean()]).optional()
+  }),
+  remediation: z.object({
+    notify: z.boolean().default(true),
+    createTask: z.boolean().default(true),
+    escalationDays: z.number().int().positive().optional(),
+    quarantine: z.boolean().optional()
+  }),
+  active: z.boolean().default(true)
+});
+
+export const connectorCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  type: z.enum(["HRIS", "IdP", "MDM", "EDR", "Cloud", "ServiceDesk", "FileImport"]),
+  mode: z.enum(["import", "export", "bidirectional", "event"]),
+  fieldMappings: z.record(z.string(), z.string()).default({}),
+  transforms: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        field: z.string(),
+        type: z.string(),
+        config: z.record(z.string(), z.unknown()).default({})
+      })
+    )
+    .default([]),
+  filters: z.array(z.object({ id: z.string().optional(), expression: z.string() })).default([])
+});
+
+export const connectorRunSchema = z.object({
+  mode: z.enum(["test", "dry-run", "sync"])
+});
+
+export const notificationRuleCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  trigger: z.enum([
+    "status_change",
+    "approval_needed",
+    "sla_breach",
+    "action_failed",
+    "shipment_pending",
+    "reclaim_warning"
+  ]),
+  channels: z.array(z.enum(["in-app", "email", "chat"])).min(1),
+  enabled: z.boolean().default(true)
+});
+
+export const configVersionCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  kind: z.enum(["workflow", "policy", "catalog", "schema", "rbac"]),
+  name: z.string().min(1),
+  reason: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).default({})
+});
+
+export const configVersionPublishSchema = z.object({
+  state: z.enum(["published", "rolled_back"]),
+  reason: z.string().min(1)
+});
+
+export const savedViewCreateSchema = z.object({
+  tenantId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  objectType: z.string().min(1),
+  filters: z.record(z.string(), z.unknown()).default({}),
+  columns: z.array(z.string()).default([])
+});
+
+export const externalTicketLinkCreateSchema = z.object({
+  workItemId: z.string().min(1),
+  provider: z.enum(["ServiceNow", "Jira", "Other"]),
+  externalTicketId: z.string().min(1),
+  externalUrl: z.string().url().optional()
+});
+
+export const csvPreviewSchema = z.object({
+  objectType: z.enum(coreObjectTypes),
+  rows: z.array(z.record(z.string(), z.unknown())).min(1),
+  fieldMapping: z.record(z.string(), z.string()).default({})
+});
+
+export const aiPromptSchema = z.object({
+  prompt: z.string().min(1)
+});
