@@ -5,6 +5,7 @@ import {
   ApprovalMatrixRule,
   CatalogItemDefinition,
   ConfigVersion,
+  ConfigVersionReadiness,
   ConnectorConfig,
   ConnectorRun,
   ContractRenewalRun,
@@ -184,6 +185,79 @@ const buildWorkflowSimulationPlan = (definition: { steps: Array<{ id: string; na
     riskLevel: step.riskLevel,
     requiresApproval: step.type === "approval" || step.riskLevel === "high"
   }));
+
+const resolveConfigVersionTarget = (version: ConfigVersion): { targetKind?: "policy" | "workflow"; targetIdHint?: string } => {
+  const payload = version.payload ?? {};
+  const payloadTargetId = typeof payload.targetId === "string" ? payload.targetId : undefined;
+  const payloadTargetKind =
+    payload.targetKind === "policy" || payload.targetKind === "workflow" ? payload.targetKind : undefined;
+  const payloadId = typeof payload.id === "string" ? payload.id : undefined;
+
+  if (version.kind === "policy") {
+    return {
+      targetKind: "policy",
+      targetIdHint: payloadTargetId ?? payloadId
+    };
+  }
+  if (version.kind === "workflow") {
+    return {
+      targetKind: "workflow",
+      targetIdHint: payloadTargetId ?? payloadId
+    };
+  }
+  return {};
+};
+
+const computeConfigVersionReadiness = (store: ApexStore, version: ConfigVersion): ConfigVersionReadiness => {
+  const { targetKind, targetIdHint } = resolveConfigVersionTarget(version);
+  const requiredSandbox = targetKind === "policy" || targetKind === "workflow";
+  if (!requiredSandbox || !targetKind) {
+    return {
+      versionId: version.id,
+      kind: version.kind,
+      requiredSandbox: false,
+      ready: true,
+      reason: "Sandbox validation not required for this config kind."
+    };
+  }
+
+  const payloadName = typeof version.payload?.name === "string" ? version.payload.name : undefined;
+  const candidates = [...store.sandboxRuns.values()]
+    .filter((run) => run.kind === targetKind && run.status === "completed")
+    .filter(
+      (run) =>
+        (targetIdHint ? run.targetId === targetIdHint : false) ||
+        run.targetName === version.name ||
+        (payloadName ? run.targetName === payloadName : false)
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+  const latest = candidates[0];
+  if (!latest) {
+    return {
+      versionId: version.id,
+      kind: version.kind,
+      requiredSandbox: true,
+      ready: false,
+      targetKind,
+      targetIdHint,
+      reason: "Run Sandbox Lab for this target before publishing."
+    };
+  }
+
+  return {
+    versionId: version.id,
+    kind: version.kind,
+    requiredSandbox: true,
+    ready: true,
+    targetKind,
+    targetIdHint,
+    latestSandboxRunId: latest.id,
+    latestSandboxRunAt: latest.createdAt,
+    latestSandboxSummary: latest.summary,
+    reason: "Sandbox validation found."
+  };
+};
 
 const getInactiveDays = (lastActiveRaw: unknown): number => {
   if (typeof lastActiveRaw !== "string") {
@@ -4262,6 +4336,11 @@ export const createRoutes = (store: ApexStore): Router => {
     res.json({ data: [...store.configVersions.values()] });
   });
 
+  router.get("/admin/config-versions/readiness", (_req, res) => {
+    const data = [...store.configVersions.values()].map((version) => computeConfigVersionReadiness(store, version));
+    res.json({ data });
+  });
+
   router.post("/admin/config-versions", (req, res) => {
     const actor = getActor(req.headers);
     permission(can(actor.role, "workflow:edit"));
@@ -4279,7 +4358,11 @@ export const createRoutes = (store: ApexStore): Router => {
       state: "draft",
       changedBy: actor.id,
       reason: parsed.reason,
-      payload: parsed.payload,
+      payload: {
+        ...parsed.payload,
+        ...(parsed.targetId ? { targetId: parsed.targetId } : {}),
+        ...(parsed.targetKind ? { targetKind: parsed.targetKind } : {})
+      },
       createdAt: nowIso()
     };
     store.configVersions.set(version.id, version);
@@ -4295,6 +4378,18 @@ export const createRoutes = (store: ApexStore): Router => {
       res.status(404).json({ error: "Config version not found" });
       return;
     }
+
+    if (parsed.state === "published") {
+      const readiness = computeConfigVersionReadiness(store, version);
+      if (readiness.requiredSandbox && !readiness.ready) {
+        res.status(409).json({
+          error: "Sandbox validation required before publish",
+          data: readiness
+        });
+        return;
+      }
+    }
+
     version.state = parsed.state;
     version.reason = parsed.reason;
     store.configVersions.set(version.id, version);

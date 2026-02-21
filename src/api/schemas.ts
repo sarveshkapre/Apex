@@ -303,6 +303,8 @@ export const configVersionCreateSchema = z.object({
   workspaceId: z.string().min(1),
   kind: z.enum(["workflow", "policy", "catalog", "schema", "rbac"]),
   name: z.string().min(1),
+  targetKind: z.enum(["policy", "workflow"]).optional(),
+  targetId: z.string().min(1).optional(),
   reason: z.string().min(1),
   payload: z.record(z.string(), z.unknown()).default({})
 });

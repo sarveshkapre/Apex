@@ -11,6 +11,7 @@ import {
   ApprovalMatrixRule,
   ApprovalMatrixSimulationResult,
   ConfigVersion,
+  ConfigVersionReadiness,
   CustomObjectSchema,
   FieldRestriction,
   NotificationRule,
@@ -30,6 +31,7 @@ import {
   createSandboxRun,
   createSodRule,
   listApprovalMatrixRules,
+  listConfigVersionReadiness,
   listConfigVersions,
   listCustomSchemas,
   listFieldRestrictions,
@@ -47,6 +49,7 @@ type Props = {
   initialPolicies: PolicyDefinition[];
   initialNotifications: NotificationRule[];
   initialVersions: ConfigVersion[];
+  initialConfigReadiness: ConfigVersionReadiness[];
   initialFieldRestrictions: FieldRestriction[];
   initialSodRules: SodRule[];
   initialApprovalMatrix: ApprovalMatrixRule[];
@@ -64,6 +67,7 @@ export function AdminStudio({
   initialPolicies,
   initialNotifications,
   initialVersions,
+  initialConfigReadiness,
   initialFieldRestrictions,
   initialSodRules,
   initialApprovalMatrix,
@@ -73,6 +77,7 @@ export function AdminStudio({
   const [policies, setPolicies] = React.useState(initialPolicies);
   const [notifications, setNotifications] = React.useState(initialNotifications);
   const [versions, setVersions] = React.useState(initialVersions);
+  const [configReadiness, setConfigReadiness] = React.useState(initialConfigReadiness);
   const [fieldRestrictions, setFieldRestrictions] = React.useState(initialFieldRestrictions);
   const [sodRules, setSodRules] = React.useState(initialSodRules);
   const [approvalMatrix, setApprovalMatrix] = React.useState(initialApprovalMatrix);
@@ -81,6 +86,11 @@ export function AdminStudio({
   const [status, setStatus] = React.useState("");
   const [schemaName, setSchemaName] = React.useState("");
   const [policyName, setPolicyName] = React.useState("");
+  const [configKind, setConfigKind] = React.useState<"workflow" | "policy" | "catalog" | "schema" | "rbac">("policy");
+  const [configName, setConfigName] = React.useState("Encryption required");
+  const [configReason, setConfigReason] = React.useState("Draft policy tuning");
+  const [configTargetKind, setConfigTargetKind] = React.useState<"policy" | "workflow">("policy");
+  const [configTargetId, setConfigTargetId] = React.useState("");
 
   const [restrictionObjectType, setRestrictionObjectType] = React.useState("Person");
   const [restrictionField, setRestrictionField] = React.useState("compensation");
@@ -120,11 +130,12 @@ export function AdminStudio({
   const [authResult, setAuthResult] = React.useState<string>("");
 
   const refresh = async () => {
-    const [s, p, n, v, f, sod, matrix, sandbox] = await Promise.all([
+    const [s, p, n, v, readiness, f, sod, matrix, sandbox] = await Promise.all([
       listCustomSchemas(),
       listPolicies(),
       listNotificationRules(),
       listConfigVersions(),
+      listConfigVersionReadiness(),
       listFieldRestrictions(),
       listSodRules(),
       listApprovalMatrixRules(),
@@ -134,6 +145,7 @@ export function AdminStudio({
     setPolicies(p);
     setNotifications(n);
     setVersions(v);
+    setConfigReadiness(readiness);
     setFieldRestrictions(f);
     setSodRules(sod);
     setApprovalMatrix(matrix);
@@ -179,10 +191,16 @@ export function AdminStudio({
   };
 
   const addConfigVersion = async () => {
+    if (!configName.trim()) {
+      setStatus("Config name is required.");
+      return;
+    }
     const response = await createConfigVersion({
-      kind: "policy",
-      name: "Encryption required",
-      reason: "Draft policy tuning"
+      kind: configKind,
+      name: configName.trim(),
+      reason: configReason.trim() || "Config draft update",
+      targetKind: configKind === "policy" || configKind === "workflow" ? configTargetKind : undefined,
+      targetId: configTargetId.trim() || undefined
     });
     setStatus(response.ok ? "Config version draft created." : "Failed to create config version.");
     await refresh();
@@ -190,7 +208,19 @@ export function AdminStudio({
 
   const publishVersion = async (id: string) => {
     const response = await transitionConfigVersion(id, "published", "Approved for production");
-    setStatus(response.ok ? "Config published." : "Failed to publish config.");
+    if (response.ok) {
+      setStatus("Config published.");
+    } else {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; data?: { reason?: string } }
+        | null;
+      if (payload?.error) {
+        const detail = payload.data?.reason ? ` ${payload.data.reason}` : "";
+        setStatus(`${payload.error}.${detail}`.trim());
+      } else {
+        setStatus("Failed to publish config.");
+      }
+    }
     await refresh();
   };
 
@@ -337,6 +367,15 @@ export function AdminStudio({
     setAuthResult(`${result.actor.role} ${result.allowed ? "can" : "cannot"} run ${result.action}`);
   };
 
+  const readinessByVersion = React.useMemo(
+    () =>
+      configReadiness.reduce<Record<string, ConfigVersionReadiness>>((acc, item) => {
+        acc[item.versionId] = item;
+        return acc;
+      }, {}),
+    [configReadiness]
+  );
+
   return (
     <div className="space-y-4">
       <Card className="rounded-2xl border-zinc-300/70 bg-white/85">
@@ -353,11 +392,42 @@ export function AdminStudio({
         <CardHeader>
           <CardTitle className="text-base">Create policy and version draft</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Input value={policyName} onChange={(event) => setPolicyName(event.target.value)} placeholder="Policy name" className="max-w-sm" />
-          <Button onClick={addPolicy} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />Add policy</Button>
-          <Button variant="outline" className="rounded-xl" onClick={addNotification}>Add notification rule</Button>
-          <Button variant="outline" className="rounded-xl" onClick={addConfigVersion}>Create config draft</Button>
+        <CardContent className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Input value={policyName} onChange={(event) => setPolicyName(event.target.value)} placeholder="Policy name" className="max-w-sm" />
+            <Button onClick={addPolicy} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />Add policy</Button>
+            <Button variant="outline" className="rounded-xl" onClick={addNotification}>Add notification rule</Button>
+          </div>
+          <div className="grid gap-2 md:grid-cols-5">
+            <Select value={configKind} onValueChange={(value) => setConfigKind(value as "workflow" | "policy" | "catalog" | "schema" | "rbac")}>
+              <SelectTrigger><SelectValue placeholder="Config kind" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="policy">Policy</SelectItem>
+                <SelectItem value="workflow">Workflow</SelectItem>
+                <SelectItem value="catalog">Catalog</SelectItem>
+                <SelectItem value="schema">Schema</SelectItem>
+                <SelectItem value="rbac">RBAC</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input value={configName} onChange={(event) => setConfigName(event.target.value)} placeholder="Config name" />
+            <Input value={configReason} onChange={(event) => setConfigReason(event.target.value)} placeholder="Change reason" />
+            <Select value={configTargetKind} onValueChange={(value) => setConfigTargetKind(value as "policy" | "workflow")}>
+              <SelectTrigger disabled={!(configKind === "policy" || configKind === "workflow")}><SelectValue placeholder="Target kind" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="policy">Policy</SelectItem>
+                <SelectItem value="workflow">Workflow</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={configTargetId}
+              onChange={(event) => setConfigTargetId(event.target.value)}
+              placeholder="Target id (recommended)"
+              disabled={!(configKind === "policy" || configKind === "workflow")}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="rounded-xl" onClick={addConfigVersion}>Create config draft</Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -653,8 +723,29 @@ export function AdminStudio({
                 <p>
                   {version.kind}: {version.name} v{version.version} • {version.state}
                 </p>
+                {readinessByVersion[version.id] ? (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Sandbox gate: {readinessByVersion[version.id].ready ? "ready" : "blocked"} • {readinessByVersion[version.id].reason}
+                  </p>
+                ) : null}
+                {readinessByVersion[version.id]?.latestSandboxRunAt ? (
+                  <p className="text-xs text-zinc-500">
+                    Last sandbox: {readinessByVersion[version.id].latestSandboxRunAt}
+                  </p>
+                ) : null}
                 <div className="mt-1.5 flex gap-1.5">
-                  <Button size="sm" variant="outline" className="rounded-md" onClick={() => publishVersion(version.id)}>Publish</Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-md"
+                    onClick={() => publishVersion(version.id)}
+                    disabled={Boolean(
+                      readinessByVersion[version.id]?.requiredSandbox &&
+                        !readinessByVersion[version.id]?.ready
+                    )}
+                  >
+                    Publish
+                  </Button>
                   <Button size="sm" variant="outline" className="rounded-md" onClick={() => rollbackVersion(version.id)}>Rollback</Button>
                 </div>
               </div>

@@ -481,6 +481,19 @@ export interface ConfigVersion {
   createdAt: string;
 }
 
+export interface ConfigVersionReadiness {
+  versionId: string;
+  kind: "workflow" | "policy" | "catalog" | "schema" | "rbac";
+  requiredSandbox: boolean;
+  ready: boolean;
+  targetKind?: "policy" | "workflow";
+  targetIdHint?: string;
+  latestSandboxRunId?: string;
+  latestSandboxRunAt?: string;
+  latestSandboxSummary?: string;
+  reason: string;
+}
+
 export interface SandboxRun {
   id: string;
   tenantId: TenantId;

@@ -28,6 +28,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Approval matrix rules support conditional routing by region, required tags, linked object types, and cost threshold
 - Admin Studio includes approval matrix simulation previews (matched rules, final approvers, fallback behavior) before publish
 - Sandbox Lab dry-runs for policies and workflows with non-mutating previews and run history
+- Config publish guardrails now enforce sandbox readiness before publishing policy/workflow config versions
 - Approval timeout lifecycle with expiry and escalation to fallback approver
 - Workflow engine with execution logs and exception item creation
 - Built-in playbook workflow definitions:
@@ -184,6 +185,7 @@ npm --prefix web run build
 - `POST /v1/admin/rbac/approval-matrix/simulate`
 - `POST /v1/admin/rbac/authorize`
 - `GET/POST /v1/admin/sandbox/runs`
+- `GET /v1/admin/config-versions/readiness`
 - `GET /v1/admin/policies/exceptions`, `POST /v1/admin/policies/exceptions/:id/action`
 
 ## Actor/role simulation

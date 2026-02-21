@@ -402,6 +402,22 @@ export interface ConfigVersion {
   state: "draft" | "published" | "rolled_back";
   changedBy: string;
   reason: string;
+  payload?: Record<string, unknown>;
+  targetId?: string;
+  targetKind?: "policy" | "workflow";
+}
+
+export interface ConfigVersionReadiness {
+  versionId: string;
+  kind: string;
+  requiredSandbox: boolean;
+  ready: boolean;
+  targetKind?: "policy" | "workflow";
+  targetIdHint?: string;
+  latestSandboxRunId?: string;
+  latestSandboxRunAt?: string;
+  latestSandboxSummary?: string;
+  reason: string;
 }
 
 export interface SandboxRun {

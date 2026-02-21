@@ -607,6 +607,96 @@ describe("Apex API", () => {
     expect(runs.body.data.some((item: { kind: string }) => item.kind === "workflow")).toBe(true);
   });
 
+  it("blocks publishing policy/workflow config versions until sandbox readiness passes", async () => {
+    const { app } = createApp();
+
+    const policy = await request(app)
+      .post("/v1/admin/policies")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        name: "Publish Gate Policy",
+        description: "Used to validate config publish gating",
+        objectType: "Device",
+        severity: "medium",
+        expression: {
+          field: "encryption_state",
+          operator: "equals",
+          value: "enabled"
+        },
+        remediation: {
+          notify: true,
+          createTask: true
+        },
+        active: true
+      });
+    expect(policy.status).toBe(201);
+
+    const config = await request(app)
+      .post("/v1/admin/config-versions")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        tenantId: "tenant-demo",
+        workspaceId: "workspace-demo",
+        kind: "policy",
+        name: "Publish Gate Policy",
+        targetKind: "policy",
+        targetId: policy.body.data.id,
+        reason: "Prepare publish gate test",
+        payload: {}
+      });
+    expect(config.status).toBe(201);
+    const versionId = config.body.data.id as string;
+
+    const readinessBefore = await request(app)
+      .get("/v1/admin/config-versions/readiness")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin");
+    expect(readinessBefore.status).toBe(200);
+    const beforeRow = readinessBefore.body.data.find((item: { versionId: string }) => item.versionId === versionId);
+    expect(beforeRow.requiredSandbox).toBe(true);
+    expect(beforeRow.ready).toBe(false);
+
+    const blockedPublish = await request(app)
+      .post(`/v1/admin/config-versions/${versionId}/state`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ state: "published", reason: "Attempt publish before sandbox" });
+    expect(blockedPublish.status).toBe(409);
+    expect(blockedPublish.body.error).toContain("Sandbox validation required");
+
+    const sandbox = await request(app)
+      .post("/v1/admin/sandbox/runs")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({
+        kind: "policy",
+        targetId: policy.body.data.id,
+        inputs: { trigger: "pre-publish" }
+      });
+    expect(sandbox.status).toBe(201);
+
+    const readinessAfter = await request(app)
+      .get("/v1/admin/config-versions/readiness")
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin");
+    expect(readinessAfter.status).toBe(200);
+    const afterRow = readinessAfter.body.data.find((item: { versionId: string }) => item.versionId === versionId);
+    expect(afterRow.ready).toBe(true);
+    expect(typeof afterRow.latestSandboxRunId).toBe("string");
+
+    const published = await request(app)
+      .post(`/v1/admin/config-versions/${versionId}/state`)
+      .set("x-actor-id", "admin-1")
+      .set("x-actor-role", "it-admin")
+      .send({ state: "published", reason: "Sandbox complete" });
+    expect(published.status).toBe(200);
+    expect(published.body.data.state).toBe("published");
+  });
+
   it("supports exception action lifecycle", async () => {
     const { app } = createApp();
 

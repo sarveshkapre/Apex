@@ -12,6 +12,7 @@ import {
   CloudTagCoverage,
   CloudTagEnforcementResult,
   ConfigVersion,
+  ConfigVersionReadiness,
   ConnectorConfig,
   ContractRenewalOverview,
   ContractRenewalRun,
@@ -1385,6 +1386,10 @@ export const listConfigVersions = async (): Promise<ConfigVersion[]> => {
   return safe(() => get<ConfigVersion[]>("/admin/config-versions"), mockConfigVersions);
 };
 
+export const listConfigVersionReadiness = async (): Promise<ConfigVersionReadiness[]> => {
+  return safe(() => get<ConfigVersionReadiness[]>("/admin/config-versions/readiness"), []);
+};
+
 export const listSandboxRuns = async (): Promise<SandboxRun[]> => {
   return safe(() => get<SandboxRun[]>("/admin/sandbox/runs"), []);
 };
@@ -1537,7 +1542,13 @@ export const authorizeAction = async (action: string): Promise<{ actor: { id: st
   );
 };
 
-export const createConfigVersion = async (payload: { kind: string; name: string; reason: string }) => {
+export const createConfigVersion = async (payload: {
+  kind: "workflow" | "policy" | "catalog" | "schema" | "rbac";
+  name: string;
+  reason: string;
+  targetKind?: "policy" | "workflow";
+  targetId?: string;
+}) => {
   return fetch(`${API_BASE}/admin/config-versions`, {
     method: "POST",
     headers: {
@@ -1551,6 +1562,8 @@ export const createConfigVersion = async (payload: { kind: string; name: string;
       kind: payload.kind,
       name: payload.name,
       reason: payload.reason,
+      targetKind: payload.targetKind,
+      targetId: payload.targetId,
       payload: {}
     })
   });

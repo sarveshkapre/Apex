@@ -4,6 +4,7 @@ import { CatalogBuilder } from "@/components/operator/catalog-builder";
 import {
   getCatalog,
   listApprovalMatrixRules,
+  listConfigVersionReadiness,
   listConfigVersions,
   listCustomSchemas,
   listFieldRestrictions,
@@ -15,11 +16,12 @@ import {
 } from "@/lib/apex";
 
 export default async function AdminStudioPage() {
-  const [schemas, policies, notifications, versions, fieldRestrictions, sodRules, approvalMatrix, sandboxRuns, catalog, workflows] = await Promise.all([
+  const [schemas, policies, notifications, versions, configReadiness, fieldRestrictions, sodRules, approvalMatrix, sandboxRuns, catalog, workflows] = await Promise.all([
     listCustomSchemas(),
     listPolicies(),
     listNotificationRules(),
     listConfigVersions(),
+    listConfigVersionReadiness(),
     listFieldRestrictions(),
     listSodRules(),
     listApprovalMatrixRules(),
@@ -39,6 +41,7 @@ export default async function AdminStudioPage() {
         initialPolicies={policies}
         initialNotifications={notifications}
         initialVersions={versions}
+        initialConfigReadiness={configReadiness}
         initialFieldRestrictions={fieldRestrictions}
         initialSodRules={sodRules}
         initialApprovalMatrix={approvalMatrix}
