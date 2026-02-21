@@ -25,6 +25,7 @@ import {
   JmlMoverExecutionResult,
   JmlMoverRun,
   KnowledgeArticle,
+  LostStolenReportResult,
   NotificationRule,
   ObjectMergeExecuteResult,
   ObjectMergePreviewResult,
@@ -258,6 +259,42 @@ export const startObjectWorkflow = async (payload: {
     throw new Error("Failed to start workflow from object context");
   }
   const json = (await response.json()) as ApiResponse<{ run: WorkflowRun; objectId: string }>;
+  return json.data;
+};
+
+export const reportDeviceLostStolen = async (payload: {
+  deviceId: string;
+  reporterId: string;
+  lastKnownLocation: string;
+  occurredAt: string;
+  circumstances: string;
+  suspectedTheft: boolean;
+  requestImmediateLock: boolean;
+  requestWipe: boolean;
+  createCredentialRotationTask: boolean;
+}): Promise<LostStolenReportResult> => {
+  const response = await fetch(`${API_BASE}/devices/${payload.deviceId}/lost-stolen/report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-actor-id": "portal-user-1",
+      "x-actor-role": "end-user"
+    },
+    body: JSON.stringify({
+      reporterId: payload.reporterId,
+      lastKnownLocation: payload.lastKnownLocation,
+      occurredAt: payload.occurredAt,
+      circumstances: payload.circumstances,
+      suspectedTheft: payload.suspectedTheft,
+      requestImmediateLock: payload.requestImmediateLock,
+      requestWipe: payload.requestWipe,
+      createCredentialRotationTask: payload.createCredentialRotationTask
+    })
+  });
+  if (!response.ok) {
+    throw new Error("Failed to report lost/stolen device");
+  }
+  const json = (await response.json()) as ApiResponse<LostStolenReportResult>;
   return json.data;
 };
 

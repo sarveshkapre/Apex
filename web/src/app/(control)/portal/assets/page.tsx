@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/app/page-header";
 import { LinkedRequestActions } from "@/components/portal/linked-request-actions";
+import { LostStolenReportDialog } from "@/components/portal/lost-stolen-report-dialog";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listObjectsByType } from "@/lib/apex";
@@ -56,15 +57,6 @@ export default async function AssetsPage() {
                     tags: ["device", "return"]
                   },
                   {
-                    label: "Report lost/stolen",
-                    type: "Incident",
-                    priority: "P1",
-                    title: `Lost/stolen report: ${String(device.fields.asset_tag ?? device.id)}`,
-                    description: "Urgent lost or stolen device report.",
-                    tags: ["device", "security", "lost-stolen"],
-                    className: "text-rose-700"
-                  },
-                  {
                     label: "Request replacement",
                     type: "Request",
                     priority: "P2",
@@ -73,6 +65,10 @@ export default async function AssetsPage() {
                     tags: ["device", "replacement"]
                   }
                 ]}
+              />
+              <LostStolenReportDialog
+                deviceId={device.id}
+                assetLabel={String(device.fields.asset_tag ?? device.fields.model ?? device.id)}
               />
             </CardContent>
           </Card>

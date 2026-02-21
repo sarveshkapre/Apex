@@ -320,6 +320,67 @@ describe("Apex API", () => {
     expect(started.body.data.run.inputs.objectType).toBe("Device");
   });
 
+  it("runs guided lost/stolen report with approval-gated lock and wipe actions", async () => {
+    const { app } = createApp();
+
+    const devices = await request(app).get("/v1/objects").query({ type: "Device" });
+    expect(devices.status).toBe(200);
+    const deviceId = devices.body.data[0].id as string;
+
+    const reported = await request(app)
+      .post(`/v1/devices/${deviceId}/lost-stolen/report`)
+      .set("x-actor-id", "portal-user-1")
+      .set("x-actor-role", "end-user")
+      .send({
+        reporterId: "person-1",
+        lastKnownLocation: "San Francisco Office",
+        occurredAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        circumstances: "Device left in rideshare and could not be recovered.",
+        suspectedTheft: true,
+        requestImmediateLock: true,
+        requestWipe: true,
+        createCredentialRotationTask: true
+      });
+
+    expect(reported.status).toBe(201);
+    expect(reported.body.data.incident.type).toBe("Incident");
+    expect(reported.body.data.incident.priority).toBe("P0");
+    expect(reported.body.data.approvals.length).toBeGreaterThanOrEqual(2);
+    expect(reported.body.data.actionPlan.some((step: { requiresApproval: boolean }) => step.requiresApproval)).toBe(true);
+    expect(reported.body.data.followUpTasks.length).toBeGreaterThanOrEqual(1);
+
+    const device = await request(app).get(`/v1/objects/${deviceId}`);
+    expect(device.status).toBe(200);
+    expect(device.body.data.fields.lost_stolen_status).toBe("reported");
+  });
+
+  it("supports low-risk lost/stolen report without destructive action approvals", async () => {
+    const { app } = createApp();
+
+    const devices = await request(app).get("/v1/objects").query({ type: "Device" });
+    const deviceId = devices.body.data[0].id as string;
+
+    const reported = await request(app)
+      .post(`/v1/devices/${deviceId}/lost-stolen/report`)
+      .set("x-actor-id", "portal-user-1")
+      .set("x-actor-role", "end-user")
+      .send({
+        reporterId: "person-1",
+        lastKnownLocation: "HQ Front Desk",
+        occurredAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+        circumstances: "Device is missing after office move.",
+        suspectedTheft: false,
+        requestImmediateLock: false,
+        requestWipe: false,
+        createCredentialRotationTask: false
+      });
+
+    expect(reported.status).toBe(201);
+    expect(reported.body.data.incident.priority).toBe("P1");
+    expect(reported.body.data.approvals.length).toBe(0);
+    expect(reported.body.data.actionPlan.every((step: { requiresApproval: boolean }) => !step.requiresApproval)).toBe(true);
+  });
+
   it("adds comment and attachment to a work item", async () => {
     const { app } = createApp();
 

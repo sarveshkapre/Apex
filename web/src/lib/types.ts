@@ -77,6 +77,22 @@ export interface WorkItem {
   updatedAt: string;
 }
 
+export interface LostStolenActionStep {
+  action: string;
+  riskLevel: "low" | "medium" | "high";
+  requiresApproval: boolean;
+  status: "planned" | "pending-approval";
+  approvalId?: string;
+}
+
+export interface LostStolenReportResult {
+  incident: WorkItem;
+  approvals: Approval[];
+  followUpTasks: WorkItem[];
+  actionPlan: LostStolenActionStep[];
+  evidenceHint: string;
+}
+
 export type WorkItemBulkAction = "assign" | "priority" | "tag" | "comment" | "workflow-step" | "export";
 
 export interface WorkItemBulkResult {

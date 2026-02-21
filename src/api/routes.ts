@@ -12,6 +12,7 @@ import {
   ExternalTicketComment,
   ExternalTicketLink,
   FieldRestriction,
+  ApprovalRecord,
   GraphObject,
   GraphRelationship,
   JmlMoverPlan,
@@ -57,6 +58,7 @@ import {
   externalTicketCommentSchema,
   externalTicketLinkCreateSchema,
   fieldRestrictionCreateSchema,
+  lostStolenReportSchema,
   notificationRuleCreateSchema,
   objectChildCreateSchema,
   objectMergeExecuteSchema,
@@ -1386,6 +1388,207 @@ export const createRoutes = (store: ApexStore): Router => {
       data: {
         run,
         objectId: object.id
+      }
+    });
+  });
+
+  router.post("/devices/:id/lost-stolen/report", (req, res) => {
+    const actor = getActor(req.headers);
+    permission(can(actor.role, "workflow:run"));
+    const parsed = lostStolenReportSchema.parse(req.body);
+    const device = store.objects.get(req.params.id);
+    if (!device || device.type !== "Device") {
+      res.status(404).json({ error: "Device not found" });
+      return;
+    }
+
+    const incident: WorkItem = {
+      id: store.createId(),
+      tenantId: device.tenantId,
+      workspaceId: device.workspaceId,
+      type: "Incident",
+      status: "Submitted",
+      priority: parsed.requestWipe || parsed.suspectedTheft ? "P0" : "P1",
+      title: `Lost/stolen device report: ${String(device.fields.asset_tag ?? device.id)}`,
+      description: parsed.circumstances,
+      requesterId: parsed.reporterId,
+      assignmentGroup: "Security Operations",
+      linkedObjectIds: [device.id],
+      tags: ["portal", "device", "security", "lost-stolen"],
+      comments: [
+        {
+          id: store.createId(),
+          authorId: actor.id,
+          body: `Last known location: ${parsed.lastKnownLocation}. Occurred at: ${parsed.occurredAt}.`,
+          mentions: [],
+          createdAt: nowIso()
+        }
+      ],
+      attachments: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    store.workItems.set(incident.id, incident);
+
+    const actionPlan: Array<{
+      action: string;
+      riskLevel: "low" | "medium" | "high";
+      requiresApproval: boolean;
+      status: "planned" | "pending-approval";
+      approvalId?: string;
+    }> = [
+      {
+        action: "Notify security operations",
+        riskLevel: "low",
+        requiresApproval: false,
+        status: "planned"
+      }
+    ];
+
+    const createdApprovals: ApprovalRecord[] = [];
+    const createApproval = (type: ApprovalRecord["type"], action: string): ApprovalRecord => {
+      const approval: ApprovalRecord = {
+        id: store.createId(),
+        tenantId: device.tenantId,
+        workspaceId: device.workspaceId,
+        workItemId: incident.id,
+        type,
+        approverId: `${type}-approver`,
+        decision: "pending",
+        comment: `Approval required for: ${action}`,
+        createdAt: nowIso(),
+        expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString()
+      };
+      store.approvals.set(approval.id, approval);
+      createdApprovals.push(approval);
+      store.pushTimeline({
+        tenantId: approval.tenantId,
+        workspaceId: approval.workspaceId,
+        entityType: "approval",
+        entityId: approval.id,
+        eventType: "approval.requested",
+        actor: actor.id,
+        createdAt: nowIso(),
+        payload: {
+          workItemId: incident.id,
+          type: approval.type,
+          action
+        }
+      });
+      return approval;
+    };
+
+    if (parsed.requestImmediateLock) {
+      const approval = createApproval("security", "Trigger remote lock");
+      actionPlan.push({
+        action: "Trigger remote lock",
+        riskLevel: "high",
+        requiresApproval: true,
+        status: "pending-approval",
+        approvalId: approval.id
+      });
+    }
+
+    if (parsed.requestWipe) {
+      const securityApproval = createApproval("security", "Trigger remote wipe");
+      const itApproval = createApproval("it", "Trigger remote wipe");
+      actionPlan.push({
+        action: "Trigger remote wipe",
+        riskLevel: "high",
+        requiresApproval: true,
+        status: "pending-approval",
+        approvalId: securityApproval.id
+      });
+      actionPlan.push({
+        action: "Authorize wipe execution",
+        riskLevel: "high",
+        requiresApproval: true,
+        status: "pending-approval",
+        approvalId: itApproval.id
+      });
+    }
+
+    const followUpTasks: WorkItem[] = [];
+    if (parsed.createCredentialRotationTask) {
+      const task: WorkItem = {
+        id: store.createId(),
+        tenantId: device.tenantId,
+        workspaceId: device.workspaceId,
+        type: "Task",
+        status: "Submitted",
+        priority: "P1",
+        title: `Credential rotation for ${String(device.fields.asset_tag ?? device.id)}`,
+        description: "Rotate credentials and invalidate sessions after lost/stolen report.",
+        requesterId: parsed.reporterId,
+        assignmentGroup: "Identity Operations",
+        linkedObjectIds: [device.id],
+        tags: ["security", "credential-rotation", "lost-stolen"],
+        comments: [],
+        attachments: [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      store.workItems.set(task.id, task);
+      followUpTasks.push(task);
+      actionPlan.push({
+        action: "Rotate credentials and sessions",
+        riskLevel: "medium",
+        requiresApproval: false,
+        status: "planned"
+      });
+    }
+
+    const before = { ...device.fields };
+    device.fields = {
+      ...device.fields,
+      lost_stolen_status: "reported",
+      lost_stolen_reported_at: nowIso(),
+      lost_stolen_occurred_at: parsed.occurredAt,
+      last_known_location: parsed.lastKnownLocation,
+      lost_stolen_circumstances: parsed.circumstances,
+      pending_security_actions: {
+        lock_requested: parsed.requestImmediateLock,
+        wipe_requested: parsed.requestWipe
+      }
+    };
+    device.updatedAt = nowIso();
+    store.objects.set(device.id, device);
+
+    store.pushTimeline({
+      tenantId: device.tenantId,
+      workspaceId: device.workspaceId,
+      entityType: "object",
+      entityId: device.id,
+      eventType: "object.updated",
+      actor: actor.id,
+      reason: "lost-stolen-report",
+      createdAt: nowIso(),
+      payload: {
+        before,
+        after: device.fields
+      }
+    });
+    store.pushTimeline({
+      tenantId: incident.tenantId,
+      workspaceId: incident.workspaceId,
+      entityType: "work-item",
+      entityId: incident.id,
+      eventType: "object.created",
+      actor: actor.id,
+      createdAt: nowIso(),
+      payload: {
+        type: incident.type,
+        tags: incident.tags
+      }
+    });
+
+    res.status(201).json({
+      data: {
+        incident,
+        approvals: createdApprovals,
+        followUpTasks,
+        actionPlan,
+        evidenceHint: `Use /v1/evidence/${incident.id} after resolution for full package export.`
       }
     });
   });

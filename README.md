@@ -17,6 +17,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Manual field override controls with reason + optional expiry stored in provenance
 - Graph object actions for link/unlink, child object creation, and workflow start from object context
 - Global search now supports facet and filter-aware result retrieval
+- Guided lost/stolen device reporting with approval-gated lock/wipe action planning
 - Work items (Request/Incident/Change/Task/Approval/Exception)
 - Approval model and high-risk automation gating
 - Approval timeout lifecycle with expiry and escalation to fallback approver
@@ -49,6 +50,7 @@ This repository now ships a full-stack implementation baseline for Apex:
   - duplicate merge operations (`/v1/object-merges/preview`, `/v1/object-merges/execute`, `/v1/object-merges/:id/revert`, `/v1/object-merges/runs`)
   - manual provenance overrides (`/v1/objects/:id/manual-override`)
   - graph object actions (`/v1/relationships/:id/unlink`, `/v1/objects/:id/children`, `/v1/objects/:id/workflows/start`)
+  - guided lost/stolen report flow (`/v1/devices/:id/lost-stolen/report`)
   - connector CRUD + run history (`/v1/admin/connectors`, `/v1/admin/connectors/:id/run`)
   - notification rules (`/v1/admin/notifications`)
   - config versioning (`/v1/admin/config-versions`, publish/rollback state transitions)
@@ -87,6 +89,7 @@ This repository now ships a full-stack implementation baseline for Apex:
 - Admin CSV import wizard and config publish/rollback actions
 - Portal catalog request dialog with dynamic form preview + policy-driven approval submission
 - Portal asset/access action buttons now create linked requests/incidents against selected objects
+- Portal assets includes guided lost/stolen dialog with security action planning and approval expectations
 - Operator Cloud Tag Governance module with dry-run/live remediation controls
 - Operator SaaS Governance module for reclaim policy authoring, run history, and retry controls
 - Operator Contract Renewals module for upcoming renewal pipeline and reminder runs
@@ -133,6 +136,7 @@ npm --prefix web run build
 - `GET /v1/object-merges/runs`, `POST /v1/object-merges/preview`, `POST /v1/object-merges/execute`, `POST /v1/object-merges/:id/revert`
 - `POST /v1/relationships`, `GET /v1/relationships`, `POST /v1/relationships/:id/unlink`
 - `POST /v1/objects/:id/children`, `POST /v1/objects/:id/workflows/start`
+- `POST /v1/devices/:id/lost-stolen/report`
 - `GET /v1/timeline/:entityId`
 - `POST /v1/signals/preview`, `POST /v1/signals/ingest`
 - `GET /v1/quality`

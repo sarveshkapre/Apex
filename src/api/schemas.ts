@@ -58,6 +58,17 @@ export const objectWorkflowStartSchema = z.object({
   inputs: z.record(z.string(), z.unknown()).default({})
 });
 
+export const lostStolenReportSchema = z.object({
+  reporterId: z.string().min(1),
+  lastKnownLocation: z.string().min(1),
+  occurredAt: z.string().datetime(),
+  circumstances: z.string().min(1),
+  suspectedTheft: z.boolean().default(false),
+  requestImmediateLock: z.boolean().default(true),
+  requestWipe: z.boolean().default(false),
+  createCredentialRotationTask: z.boolean().default(true)
+});
+
 export const signalIngestSchema = z.object({
   tenantId: z.string().min(1),
   workspaceId: z.string().min(1),
